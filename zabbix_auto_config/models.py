@@ -4,6 +4,7 @@ from typing import (
     Any,
     Dict,
     List,
+    NamedTuple,
     Optional,
     Set,
     Tuple,
@@ -222,3 +223,8 @@ class Host(BaseModel):
             self.proxy_pattern = sorted(list(proxy_patterns))[0]
         elif len(proxy_patterns) == 1:
             self.proxy_pattern = proxy_patterns.pop()
+
+
+class SourceHost(NamedTuple):
+    source: str
+    host: Host

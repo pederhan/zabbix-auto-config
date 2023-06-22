@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import multiprocessing
 import logging
 import datetime
@@ -176,7 +178,7 @@ class SourceCollectorProcess(BaseProcess):
         except (AssertionError, Exception) as e:
             raise exceptions.SourceCollectorError(f"Unable to collect from module ({self.config.module_name}): {str(e)}")
 
-        valid_hosts = []  # type: List[models.Host]
+        collected = 0
         for host in hosts:
             if self.stop_event.is_set():
                 logging.debug("Told to stop. Breaking")
@@ -186,24 +188,74 @@ class SourceCollectorProcess(BaseProcess):
                 raise exceptions.SourceCollectorTypeError(f"Collected object is not a Host object: {host!r}. Type: {type(host)}")
             
             host.sources = set([self.name])
-            valid_hosts.append(host)
+            self.source_hosts_queue.put(models.SourceHost(source=self.name, host=host))
+            collected += 1
 
-        source_hosts = {
-            "source": self.name,
-            "hosts": valid_hosts,
-        }
+        logging.info("Done collecting %d hosts from source, '%s', in %.2f seconds. Next update: %s", collected, self.name, time.time() - start_time, self.next_update.isoformat(timespec="seconds"))
 
-        self.source_hosts_queue.put(source_hosts)
+from typing import Set
 
-        logging.info("Done collecting %d hosts from source, '%s', in %.2f seconds. Next update: %s", len(valid_hosts), self.name, time.time() - start_time, self.next_update.isoformat(timespec="seconds"))
+
+class HostRemoverProcess(BaseProcess):
+    def __init__(self, name, state: dict, db_uri: str, source_hostnames: Dict[str, Set[str]]):
+        super().__init__(name, state)
+        self.source_hostnames = source_hostnames
+
+        self.db_uri = db_uri
+        self.db_source_table = "hosts_source"
+
+        try:
+            self.db_connection = psycopg2.connect(self.db_uri)
+        except psycopg2.OperationalError as e:
+            logging.error("Unable to connect to database.")
+            raise exceptions.ZACException(*e.args)
+
+        self.update_interval = 300
+
+    def work(self) -> None:
+        time.sleep(10)
+        # FIXME: Don't do anything until all sources have been collected from at least once
+        for source, hostnames in self.source_hostnames.items():
+            if self.stop_event.is_set():
+                logging.debug("Told to stop. Breaking")
+                break
+            self.remove_hosts(source, hostnames)
+
+    def remove_hosts(self, source: str, hostnames: Set[str]) -> None:
+        removed = 0
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            db_cursor.execute(
+                f"SELECT DISTINCT data->>'hostname' FROM {self.db_source_table} WHERE data->'sources' ? %s",
+                [source],
+            )
+            current_hostnames = {t[0] for t in db_cursor.fetchall()}
+
+        removed_hostnames = current_hostnames - hostnames
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            for removed_hostname in removed_hostnames:
+                db_cursor.execute(
+                    f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
+                    [removed_hostname, source],
+                )
+                removed += 1
+
+        logging.info("Removed %d hosts from source '%s'", removed, source)
 
 
 class SourceHandlerProcess(BaseProcess):
-    def __init__(self, name, state, db_uri, source_hosts_queues):
+    def __init__(
+        self,
+        name,
+        state,
+        db_uri,
+        source_hosts_queue: multiprocessing.Queue[models.SourceHost],
+        source_hostnames: Dict[str, Set[str]],
+    ):
         super().__init__(name, state)
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
+        self.source_hostnames = source_hostnames
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
@@ -212,63 +264,60 @@ class SourceHandlerProcess(BaseProcess):
             logging.error("Unable to connect to database.")
             raise exceptions.ZACException(*e.args)
 
-        self.source_hosts_queues = source_hosts_queues
-        for source_hosts_queue in self.source_hosts_queues:
-            source_hosts_queue.cancel_join_thread()  # Don't wait for empty queue when exiting
+        self.source_hosts_queue = source_hosts_queue
+        self.source_hosts_queue.cancel_join_thread()  # Don't wait for empty queue when exiting
 
     def work(self):
-        for source_hosts_queue in self.source_hosts_queues:
+        # NOTE: check if we can refactor to not use while True?
+        while True:
             if self.stop_event.is_set():
                 logging.debug("Told to stop. Breaking")
                 break
 
             try:
-                source_hosts = source_hosts_queue.get_nowait()
+                host = self.source_hosts_queue.get_nowait()
             except queue.Empty:
                 continue
 
-            source = source_hosts["source"]
-            hosts = source_hosts["hosts"]
+            self.handle_source_host(host)
 
-            logging.debug("Handling %d hosts from source, '%s', from queue. Current queue size: %d", len(source_hosts["hosts"]), source, source_hosts_queue.qsize())
-            self.handle_source_hosts(source, hosts)
-
-    def handle_source_hosts(self, source, hosts):
+    def handle_source_host(self, host: models.SourceHost) -> None:
         start_time = time.time()
         equal_hosts, replaced_hosts, inserted_hosts, removed_hosts = (0, 0, 0, 0)
 
-        source_hostnames = {host.hostname for host in hosts}
+        # We can't do in-place modification of shared dict values, so we need to
+        # get the set, modify it, and then assign it to the dict again
+        hostname_set = self.source_hostnames.get(host.source, set())
+        hostname_set.add(host.host.hostname)
+        self.source_hostnames[host.source] = hostname_set
+
         with self.db_connection, self.db_connection.cursor() as db_cursor:
-            db_cursor.execute(f"SELECT DISTINCT data->>'hostname' FROM {self.db_source_table} WHERE data->'sources' ? %s", [source])
-            current_hostnames = {t[0] for t in db_cursor.fetchall()}
+            db_cursor.execute(
+                f"SELECT data FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
+                [host.host.hostname, host.source],
+            )
+            result = db_cursor.fetchall()
+            current_host = models.Host(**result[0][0]) if result else None
 
-        removed_hostnames = current_hostnames - source_hostnames
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            for removed_hostname in removed_hostnames:
-                db_cursor.execute(f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s", [removed_hostname, source])
-                removed_hosts += 1
-
-        for host in hosts:
-            with self.db_connection, self.db_connection.cursor() as db_cursor:
-                db_cursor.execute(f"SELECT data FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s", [host.hostname, source])
-                result = db_cursor.fetchall()
-                current_host = models.Host(**result[0][0]) if result else None
-
-            if current_host:
-                if current_host == host:
-                    equal_hosts += 1
-                else:
-                    # logging.debug(f"Replaced host <{host['hostname']}> from source <{source}>")
-                    with self.db_connection, self.db_connection.cursor() as db_cursor:
-                        db_cursor.execute(f"UPDATE {self.db_source_table} SET data = %s WHERE data->>'hostname' = %s AND data->'sources' ? %s", [host.json(), host.hostname, source])
-                    replaced_hosts += 1
+        if current_host:
+            if current_host == host:
+                equal_hosts += 1
             else:
-                # logging.debug(f"Inserted host <{host['hostname']}> from source <{source}>")
+                # logging.debug(f"Replaced host <{host['hostname']}> from source <{source}>")
                 with self.db_connection, self.db_connection.cursor() as db_cursor:
-                    db_cursor.execute(f"INSERT INTO {self.db_source_table} (data) VALUES (%s)", [host.json()])
-                inserted_hosts += 1
-
-        logging.info("Done handling hosts from source, '%s', in %.2f seconds. Equal hosts: %d, replaced hosts: %d, inserted hosts: %d, removed hosts: %d. Next update: %s", source, time.time() - start_time, equal_hosts, replaced_hosts, inserted_hosts, removed_hosts, self.next_update.isoformat(timespec="seconds"))
+                    db_cursor.execute(
+                        f"UPDATE {self.db_source_table} SET data = %s WHERE data->>'hostname' = %s AND data->'sources' ? %s",
+                        [host.host.json(), host.host.hostname, host.source],
+                    )
+                replaced_hosts += 1
+        else:
+            # logging.debug(f"Inserted host <{host['hostname']}> from source <{source}>")
+            with self.db_connection, self.db_connection.cursor() as db_cursor:
+                db_cursor.execute(
+                    f"INSERT INTO {self.db_source_table} (data) VALUES (%s)",
+                    [host.host.json()],
+                )
+            inserted_hosts += 1
 
 
 class SourceMergerProcess(BaseProcess):
