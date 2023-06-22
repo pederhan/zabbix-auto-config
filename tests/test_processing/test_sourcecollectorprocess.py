@@ -51,9 +51,10 @@ def test_source_collector_process():
     process.stop_event.set()
     process.join(timeout=0.1)
 
-    hosts = process.source_hosts_queue.get()
-    assert len(hosts["hosts"]) == 2
-    assert hosts["hosts"][0].hostname == "foo.example.com"
+    assert process.source_hosts_queue.qsize() == 2
+    host = process.source_hosts_queue.get()
+    assert host.host.hostname == "foo.example.com"
+    assert host.source == "test-source"
     assert process.state["ok"] is True
 
 
