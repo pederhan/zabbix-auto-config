@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 
 from typing import (
@@ -228,3 +229,8 @@ class Host(BaseModel):
 class SourceHost(NamedTuple):
     source: str
     host: Host
+
+
+class RecordedHostname(NamedTuple):
+    hostname: str
+    timestamp: datetime

@@ -1,3 +1,12 @@
-Synchronization object that lets us know when all sources have finished collecting at least once.
+# IMPORTANT
 
-Add expiration to collected hostnames. Seen last time more than N minutes ago? Remove it from list of hostnames so it triggers removal from Zabbix.
+Need to fetch all hostnames from `hosts_source`, all hostnames from `hostnames`, then check which ones we should remove.
+
+# PROBABLY A GOOD IDEA
+
+* Synchronization object that lets us know when all sources have finished collecting at least once.
+
+
+# MAYBE
+
+* Remove `hostnames` table and instead add `timestamp` column to `hosts_source` table. Need to profile the performance impact of this change. If we do this, we have to check the value of the `sources` key for each item in the `hosts_source` table. Is that performant?

@@ -196,13 +196,13 @@ class SourceCollectorProcess(BaseProcess):
 from typing import Set
 
 
-class HostRemoverProcess(BaseProcess):
-    def __init__(self, name, state: dict, db_uri: str, source_hostnames: Dict[str, Set[str]]):
+class SourceHostRemoverProcess(BaseProcess):
+    def __init__(self, name, state: dict, db_uri: str):
         super().__init__(name, state)
-        self.source_hostnames = source_hostnames
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
+        self.db_hostnames_table = "hostnames"
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
@@ -215,27 +215,46 @@ class HostRemoverProcess(BaseProcess):
     def work(self) -> None:
         time.sleep(10)
         # FIXME: Don't do anything until all sources have been collected from at least once
-        for source, hostnames in self.source_hostnames.items():
+        source_hostnames = self.fetch_hostnames()
+        for source, hostnames in source_hostnames.items():
             if self.stop_event.is_set():
                 logging.debug("Told to stop. Breaking")
                 break
             self.remove_hosts(source, hostnames)
 
-    def remove_hosts(self, source: str, hostnames: Set[str]) -> None:
-        removed = 0
+    def fetch_hostnames(self) -> Dict[str, Set[models.RecordedHostname]]:
+        source_hostnames = {}  # type: Dict[str, Set[models.RecordedHostname]]
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             db_cursor.execute(
-                f"SELECT DISTINCT data->>'hostname' FROM {self.db_source_table} WHERE data->'sources' ? %s",
-                [source],
+                f"SELECT * FROM {self.db_hostnames_table};",
             )
-            current_hostnames = {t[0] for t in db_cursor.fetchall()}
+            rows = db_cursor.fetchall()
+        for row in rows:
+            source = row[1]
+            if source not in source_hostnames:
+                source_hostnames[source] = set()
+            source_hostnames[source].add(
+                models.RecordedHostname(hostname=row[0], timestamp=row[2])
+            )
+        return source_hostnames
 
-        removed_hostnames = current_hostnames - hostnames
+    def remove_hosts(
+        self, source: str, hostnames: Set[models.RecordedHostname]
+    ) -> None:
+        removed = 0
+
+        to_remove = set()
+        time_limit = datetime.timedelta(seconds=30)
+        now_time = datetime.datetime.now()
+        for host in hostnames:
+            if now_time - host.timestamp > time_limit:
+                to_remove.add(host.hostname)
+
         with self.db_connection, self.db_connection.cursor() as db_cursor:
-            for removed_hostname in removed_hostnames:
+            for remove_hostname in to_remove:
                 db_cursor.execute(
                     f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
-                    [removed_hostname, source],
+                    [remove_hostname, source],
                 )
                 removed += 1
 
@@ -249,13 +268,12 @@ class SourceHandlerProcess(BaseProcess):
         state,
         db_uri,
         source_hosts_queue: multiprocessing.Queue[models.SourceHost],
-        source_hostnames: Dict[str, Set[str]],
     ):
         super().__init__(name, state)
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
-        self.source_hostnames = source_hostnames
+        self.db_hostnames_table = "hostnames"
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
@@ -268,29 +286,26 @@ class SourceHandlerProcess(BaseProcess):
         self.source_hosts_queue.cancel_join_thread()  # Don't wait for empty queue when exiting
 
     def work(self):
-        # NOTE: check if we can refactor to not use while True?
+        # Using `while True` instead of an update interval here, because we
+        # want to keep fetching from the queue as often as possible.
+        # We also use the blocking get() with a timeout, and then
+        # check if we should stop after each item has been processed.
+        # This lets us iterate quickly while the queue has items, but also
+        # exit quickly when we're told to stop.
         while True:
             if self.stop_event.is_set():
                 logging.debug("Told to stop. Breaking")
                 break
 
             try:
-                host = self.source_hosts_queue.get_nowait()
+                # 1 second timeout to avoid constantly polling the queue
+                host = self.source_hosts_queue.get(timeout=1)
             except queue.Empty:
                 continue
 
             self.handle_source_host(host)
 
     def handle_source_host(self, host: models.SourceHost) -> None:
-        start_time = time.time()
-        equal_hosts, replaced_hosts, inserted_hosts, removed_hosts = (0, 0, 0, 0)
-
-        # We can't do in-place modification of shared dict values, so we need to
-        # get the set, modify it, and then assign it to the dict again
-        hostname_set = self.source_hostnames.get(host.source, set())
-        hostname_set.add(host.host.hostname)
-        self.source_hostnames[host.source] = hostname_set
-
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             db_cursor.execute(
                 f"SELECT data FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
@@ -301,7 +316,12 @@ class SourceHandlerProcess(BaseProcess):
 
         if current_host:
             if current_host == host:
-                equal_hosts += 1
+                # FIXME: Consider adding a VERBOSE or TRACE log level for this message
+                logging.debug(
+                    "Skipping equal host '%s' from source '%s'",
+                    host.host.hostname,
+                    host.source,
+                )
             else:
                 # logging.debug(f"Replaced host <{host['hostname']}> from source <{source}>")
                 with self.db_connection, self.db_connection.cursor() as db_cursor:
@@ -309,7 +329,11 @@ class SourceHandlerProcess(BaseProcess):
                         f"UPDATE {self.db_source_table} SET data = %s WHERE data->>'hostname' = %s AND data->'sources' ? %s",
                         [host.host.json(), host.host.hostname, host.source],
                     )
-                replaced_hosts += 1
+                logging.debug(
+                    "Replaced host '%s' from source '%s'",
+                    host.host.hostname,
+                    host.source,
+                )
         else:
             # logging.debug(f"Inserted host <{host['hostname']}> from source <{source}>")
             with self.db_connection, self.db_connection.cursor() as db_cursor:
@@ -317,7 +341,21 @@ class SourceHandlerProcess(BaseProcess):
                     f"INSERT INTO {self.db_source_table} (data) VALUES (%s)",
                     [host.host.json()],
                 )
-            inserted_hosts += 1
+            logging.debug(
+                "Inserted host '%s' from source '%s'", host.host.hostname, host.source
+            )
+
+        # Record that we observed the hostname from the source
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            db_cursor.execute(
+                f"""
+                INSERT INTO {self.db_hostnames_table} (hostname, source, timestamp) 
+                VALUES (%s, %s, NOW()) 
+                ON CONFLICT (hostname, source) 
+                DO UPDATE SET timestamp = NOW();
+                """,
+                [host.host.hostname, host.source],
+            )
 
 
 class SourceMergerProcess(BaseProcess):

@@ -131,24 +131,17 @@ def main():
         process = processing.SourceCollectorProcess(source_collector["name"], state_manager.dict(), source_collector["module"], source_collector["config"], source_hosts_queue)
         processes.append(process)
 
-    hostname_manager = multiprocessing.Manager()
-    hostnames = hostname_manager.dict()
-
     try:
         process = processing.SourceHandlerProcess(
             "source-handler",
             state_manager.dict(),
             config.zac.db_uri,
             source_hosts_queue,
-            hostnames,
         )
         processes.append(process)
 
-        process = processing.HostRemoverProcess(
-            "host-remover",
-            state_manager.dict(),
-            config.zac.db_uri,
-            hostnames,
+        process = processing.SourceHostRemoverProcess(
+            "source-host-remover", state_manager.dict(), config.zac.db_uri
         )
         processes.append(process)
 
