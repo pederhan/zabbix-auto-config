@@ -213,7 +213,7 @@ class SourceHostRemoverProcess(BaseProcess):
         self.update_interval = 300
 
     def work(self) -> None:
-        time.sleep(10)
+        time.sleep(15)
         # FIXME: Don't do anything until all sources have been collected from at least once
         source_hostnames = self.fetch_hostnames()
         for source, hostnames in source_hostnames.items():
@@ -241,8 +241,6 @@ class SourceHostRemoverProcess(BaseProcess):
     def remove_hosts(
         self, source: str, hostnames: Set[models.RecordedHostname]
     ) -> None:
-        removed = 0
-
         to_remove = set()
         time_limit = datetime.timedelta(seconds=30)
         now_time = datetime.datetime.now()
@@ -250,15 +248,36 @@ class SourceHostRemoverProcess(BaseProcess):
             if now_time - host.timestamp > time_limit:
                 to_remove.add(host.hostname)
 
+
+        # Get all found hostnames from the source
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            db_cursor.execute(
+                f"SELECT data->'hostname' FROM {self.db_source_table} WHERE data->'sources' ? %s;",
+                [source],
+            )
+            all_hostnames = [row[0] for row in db_cursor.fetchall()]
+
+        only_in_db_hostnames =  set(h.hostname for h in hostnames) - set(all_hostnames)
+        to_remove.update(only_in_db_hostnames)
+
+        # Remove hostnames from source table
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             for remove_hostname in to_remove:
                 db_cursor.execute(
                     f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
                     [remove_hostname, source],
                 )
-                removed += 1
 
-        logging.info("Removed %d hosts from source '%s'", removed, source)
+        # Remove hostnames from hostnames table
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            for remove_hostname in to_remove:
+                db_cursor.execute(
+                    f"DELETE FROM {self.db_hostnames_table} WHERE hostname = %s AND source = %s",
+                    [remove_hostname, source],
+                )
+
+
+        logging.info("Removed %d hosts from source '%s'", len(to_remove), source)
 
 
 class SourceHandlerProcess(BaseProcess):
