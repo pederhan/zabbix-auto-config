@@ -1,6 +1,5 @@
 import datetime
 import importlib
-import importlib.metadata
 import json
 import logging
 import multiprocessing
@@ -17,9 +16,8 @@ from . import exceptions
 from . import models
 from . import processing
 from ._types import SourceCollectorDict, SourceCollectorModule
-
-
-__version__ = importlib.metadata.version(os.path.basename(os.path.dirname(__file__)))
+from .db.migration import run_migrations
+from .__about__ import __version__
 
 
 def get_source_collectors(config: models.Settings) -> List[SourceCollectorDict]:
@@ -112,6 +110,7 @@ def log_process_status(processes):
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s [%(processName)s %(process)d] [%(name)s] %(message)s', datefmt="%Y-%m-%dT%H:%M:%S%z", level=logging.DEBUG)
     config = get_config()
+    run_migrations(config.zac)
 
     multiprocessing_logging.install_mp_handler()
     logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
