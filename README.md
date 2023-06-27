@@ -39,12 +39,7 @@ CREATE TABLE hosts (
 );
 CREATE TABLE hosts_source (
     data jsonb
-);
-CREATE TABLE hostnames (
-    hostname VARCHAR(255) NOT NULL,
-    source VARCHAR(255) NOT NULL,
-    timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
-    PRIMARY KEY (hostname, source)
+    timestamp timestamp WITHOUT TIME ZONE NOT NULL DEFAULT now()
 );
 EOF
 ```

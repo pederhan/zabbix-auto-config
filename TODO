@@ -1,6 +1,11 @@
 # IMPORTANT
 
-Need to fetch all hostnames from `hosts_source`, all hostnames from `hostnames`, then check which ones we should remove.
+* Add timestamp field to `hosts_source` table. This will allow us to know when a source was last updated. We can then use this to determine which sources to remove from the `hosts_source` table. This lets us remove stale hosts simply from checking the timestamp. 
+
+* We should probably add indexes for the `data->'hostname'`, `data->'sources'`, and `timestamp` fields.
+
+
+~~ Need to fetch all hostnames from `hosts_source`, all hostnames from `hostnames`, then check which ones we should remove. ~~
 
 # PROBABLY A GOOD IDEA
 
@@ -9,4 +14,5 @@ Need to fetch all hostnames from `hosts_source`, all hostnames from `hostnames`,
 
 # MAYBE
 
-* Remove `hostnames` table and instead add `timestamp` column to `hosts_source` table. Need to profile the performance impact of this change. If we do this, we have to check the value of the `sources` key for each item in the `hosts_source` table. Is that performant?
+* Bulk insertion. Fetch as many hosts as possible with a 1 sec timeout, then use all hosts to perform a bulk insertion. It will still be many operations however, so how performant will it be? The only benefit is that we re-use the same transaction. Maybe better because of fewer disk writes on the DB side?
+    * If we do this, we need to ensure we don't have duplicates in the queue. We can either do this by using tuples in a set, or by manually filtering out duplicates.

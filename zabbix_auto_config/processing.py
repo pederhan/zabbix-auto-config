@@ -16,6 +16,7 @@ import queue
 from typing import Dict, List, Optional
 
 import psycopg2
+from psycopg2 import sql
 import pyzabbix
 import requests.exceptions
 
@@ -215,69 +216,20 @@ class SourceHostRemoverProcess(BaseProcess):
     def work(self) -> None:
         time.sleep(15)
         # FIXME: Don't do anything until all sources have been collected from at least once
-        source_hostnames = self.fetch_hostnames()
-        for source, hostnames in source_hostnames.items():
-            if self.stop_event.is_set():
-                logging.debug("Told to stop. Breaking")
-                break
-            self.remove_hosts(source, hostnames)
+        self.remove_hosts()
 
-    def fetch_hostnames(self) -> Dict[str, Set[models.RecordedHostname]]:
-        source_hostnames = {}  # type: Dict[str, Set[models.RecordedHostname]]
+    def remove_hosts(self) -> None:
+        """Deletes all source hosts from the database that are older than a given age."""
         with self.db_connection, self.db_connection.cursor() as db_cursor:
-            db_cursor.execute(
-                f"SELECT * FROM {self.db_hostnames_table};",
+            query = sql.SQL(
+                f"""
+                DELETE FROM {self.db_source_table}
+                WHERE timestamp < (NOW() - INTERVAL %s)
+                """
             )
-            rows = db_cursor.fetchall()
-        for row in rows:
-            source = row[1]
-            if source not in source_hostnames:
-                source_hostnames[source] = set()
-            source_hostnames[source].add(
-                models.RecordedHostname(hostname=row[0], timestamp=row[2])
-            )
-        return source_hostnames
-
-    def remove_hosts(
-        self, source: str, hostnames: Set[models.RecordedHostname]
-    ) -> None:
-        to_remove = set()
-        time_limit = datetime.timedelta(seconds=30)
-        now_time = datetime.datetime.now()
-        for host in hostnames:
-            if now_time - host.timestamp > time_limit:
-                to_remove.add(host.hostname)
-
-
-        # Get all found hostnames from the source
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            db_cursor.execute(
-                f"SELECT data->'hostname' FROM {self.db_source_table} WHERE data->'sources' ? %s;",
-                [source],
-            )
-            all_hostnames = [row[0] for row in db_cursor.fetchall()]
-
-        only_in_db_hostnames =  set(h.hostname for h in hostnames) - set(all_hostnames)
-        to_remove.update(only_in_db_hostnames)
-
-        # Remove hostnames from source table
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            for remove_hostname in to_remove:
-                db_cursor.execute(
-                    f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s",
-                    [remove_hostname, source],
-                )
-
-        # Remove hostnames from hostnames table
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            for remove_hostname in to_remove:
-                db_cursor.execute(
-                    f"DELETE FROM {self.db_hostnames_table} WHERE hostname = %s AND source = %s",
-                    [remove_hostname, source],
-                )
-
-
-        logging.info("Removed %d hosts from source '%s'", len(to_remove), source)
+            db_cursor.execute(query, (f"{self.max_age} seconds",))
+            logging.info("Removed %d stale source hosts", db_cursor.rowcount)
+            self.db_connection.commit()
 
 
 class SourceHandlerProcess(BaseProcess):
@@ -292,7 +244,6 @@ class SourceHandlerProcess(BaseProcess):
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
-        self.db_hostnames_table = "hostnames"
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
@@ -321,6 +272,8 @@ class SourceHandlerProcess(BaseProcess):
                 host = self.source_hosts_queue.get(timeout=1)
             except queue.Empty:
                 continue
+            else:
+                logging.info("Got host: %s", host.host.hostname)
 
             self.handle_source_host(host)
 
@@ -334,18 +287,26 @@ class SourceHandlerProcess(BaseProcess):
             current_host = models.Host(**result[0][0]) if result else None
 
         if current_host:
-            if current_host == host:
-                # FIXME: Consider adding a VERBOSE or TRACE log level for this message
-                logging.debug(
-                    "Skipping equal host '%s' from source '%s'",
-                    host.host.hostname,
-                    host.source,
-                )
+            if current_host == host.host:
+                with self.db_connection, self.db_connection.cursor() as db_cursor:
+                    # NOTE: We could just ignore this host and let it go stale
+                    #       and then just re-add it when it's collected again after removal
+                    #       That will reduce the number of writes, but will also
+                    #       make the stale host remover process more busy.
+                    db_cursor.execute(
+                        f"UPDATE {self.db_source_table} SET timestamp = NOW() WHERE data->>'hostname' = %s AND data->'sources' ? %s",
+                        [host.host.hostname, host.source],
+                    )
+                # logging.debug(
+                #     "Skipping equal host '%s' from source '%s'",
+                #     host.host.hostname,
+                #     host.source,
+                # )
             else:
                 # logging.debug(f"Replaced host <{host['hostname']}> from source <{source}>")
                 with self.db_connection, self.db_connection.cursor() as db_cursor:
                     db_cursor.execute(
-                        f"UPDATE {self.db_source_table} SET data = %s WHERE data->>'hostname' = %s AND data->'sources' ? %s",
+                        f"UPDATE {self.db_source_table} SET data = %s, timestamp = NOW() WHERE data->>'hostname' = %s AND data->'sources' ? %s",
                         [host.host.json(), host.host.hostname, host.source],
                     )
                 logging.debug(
@@ -357,25 +318,13 @@ class SourceHandlerProcess(BaseProcess):
             # logging.debug(f"Inserted host <{host['hostname']}> from source <{source}>")
             with self.db_connection, self.db_connection.cursor() as db_cursor:
                 db_cursor.execute(
+                    # Current time is inserted by automatically by the database
                     f"INSERT INTO {self.db_source_table} (data) VALUES (%s)",
                     [host.host.json()],
                 )
             logging.debug(
                 "Inserted host '%s' from source '%s'", host.host.hostname, host.source
             )
-
-        # Record that we observed the hostname from the source
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            db_cursor.execute(
-                f"""
-                INSERT INTO {self.db_hostnames_table} (hostname, source, timestamp) 
-                VALUES (%s, %s, NOW()) 
-                ON CONFLICT (hostname, source) 
-                DO UPDATE SET timestamp = NOW();
-                """,
-                [host.host.hostname, host.source],
-            )
-
 
 class SourceMergerProcess(BaseProcess):
     def __init__(self, name, state, db_uri, host_modifier_dir):

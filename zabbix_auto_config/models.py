@@ -229,8 +229,3 @@ class Host(BaseModel):
 class SourceHost(NamedTuple):
     source: str
     host: Host
-
-
-class RecordedHostname(NamedTuple):
-    hostname: str
-    timestamp: datetime
