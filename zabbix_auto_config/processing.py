@@ -284,8 +284,6 @@ class SourceHandlerProcess(BaseProcess):
                 host = self.source_hosts_queue.get(timeout=1)
             except queue.Empty:
                 continue
-            else:
-                logging.info("Got host: %s", host.host.hostname)
 
             self.handle_source_host(host)
 
