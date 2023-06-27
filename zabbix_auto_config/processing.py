@@ -173,37 +173,52 @@ class SourceCollectorProcess(BaseProcess):
 
     def collect(self) -> None:
         start_time = time.time()
+        collected = 0
         try:
-            hosts = self.module.collect(**self.collector_config)
-            assert isinstance(hosts, list), "Collect module did not return a list"
+            for host in self.module.collect(**self.collector_config):
+                if self.stop_event.is_set():
+                    logging.debug("Told to stop. Breaking")
+                    break
+                if not isinstance(host, models.Host):
+                    raise exceptions.SourceCollectorTypeError(
+                        f"Collected object is not a Host object: {host!r}. Type: {type(host)}"
+                    )
+                host.sources = set([self.name])
+                self.source_hosts_queue.put(
+                    models.SourceHost(source=self.name, host=host)
+                )
+                collected += 1
+        except TypeError as e:
+            raise exceptions.SourceCollectorTypeError(
+                f"Source collector module ({self.config.module_name}) does not return an iterable of Host objects: {str(e)}"
+            )
         except (AssertionError, Exception) as e:
             raise exceptions.SourceCollectorError(f"Unable to collect from module ({self.config.module_name}): {str(e)}")
+        else:
+            logging.info(
+                "Done collecting %d hosts from source, '%s', in %.2f seconds. Next update: %s",
+                collected,
+                self.name,
+                time.time() - start_time,
+                self.next_update.isoformat(timespec="seconds"),
+            )
 
-        collected = 0
-        for host in hosts:
-            if self.stop_event.is_set():
-                logging.debug("Told to stop. Breaking")
-                break
-
-            if not isinstance(host, models.Host):
-                raise exceptions.SourceCollectorTypeError(f"Collected object is not a Host object: {host!r}. Type: {type(host)}")
-            
-            host.sources = set([self.name])
-            self.source_hosts_queue.put(models.SourceHost(source=self.name, host=host))
-            collected += 1
-
-        logging.info("Done collecting %d hosts from source, '%s', in %.2f seconds. Next update: %s", collected, self.name, time.time() - start_time, self.next_update.isoformat(timespec="seconds"))
 
 from typing import Set
 
 
 class SourceHostRemoverProcess(BaseProcess):
+    """Removes stale source hosts from the database.
+
+    A stale source is defined as a source that hasn't been seen in a given amount of time.
+    """
+
     def __init__(self, name, state: dict, db_uri: str):
         super().__init__(name, state)
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
-        self.db_hostnames_table = "hostnames"
+        self.max_age = 30  # seconds
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
