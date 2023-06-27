@@ -204,9 +204,6 @@ class SourceCollectorProcess(BaseProcess):
             )
 
 
-from typing import Set
-
-
 class SourceHostRemoverProcess(BaseProcess):
     """Removes stale source hosts from the database.
 
