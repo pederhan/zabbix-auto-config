@@ -136,25 +136,26 @@ WantedBy=multi-user.target
 
 Source collectors are Python modules placed in a directory specified by the `source_collector_dir` option in the `[zac]` table of the configuration file. Zabbix-auto-config attempts to load all modules referenced by name in the configuration file from this directory. If any referenced modules cannot be found in the directory, they will be ignored.
 
-A source collector module contains a function named `collect` that returns a list of `Host` objects. These host objects are used by Zabbix-auto-config to create or update hosts in Zabbix.
+A source collector module must contain a generator function named `collect` which yields `Host` objects. These host objects are used by Zabbix-auto-config to create or update hosts in Zabbix.
 
 Here's an example of a source collector module that reads hosts from a file:
 
 ```python
 # path/to/source_collector_dir/load_from_json.py
 
-from typing import Any, Dict, List
+from typing import Any, Iterable
 from zabbix_auto_config.models import Host
 
 DEFAULT_FILE = "hosts.json" 
 
-def collect(*args: Any, **kwargs: Any) -> List[Host]:
+def collect(*args: Any, **kwargs: Any) -> Iterable[Host]:
     filename = kwargs.get("filename", DEFAULT_FILE)
     with open(filename, "r") as f:
-        return [Host(**host) for host in f.read()]
+        for host in f.read():
+            yield Host(**host)
 ```
 
-A module is recognized as a source collector if it contains a `collect` function that accepts an arbitrary number of arguments and keyword arguments and returns a list of `Host` objects. Type annotations are optional but recommended.
+A module is recognized as a source collector if it contains a generator function named `collect` that accepts an arbitrary number of arguments and keyword arguments, and yields `Host` objects. It can also be a regular function that returns an iterable of `Host` objects, but this is not recommended for performance reasons, especially for sources that collect a large number of hosts. Type annotations are optional but recommended.
 
 The configuration entry for loading a source collector module, like the `load_from_json.py` module above, includes both mandatory and optional fields. Here's how it can be configured:
 

@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, Iterable
 from zabbix_auto_config.models import Host
 
 HOSTS = [
@@ -11,8 +11,7 @@ HOSTS = [
 ]
 
 
-def collect(*args: Any, **kwargs: Any) -> List[Host]:
-    hosts = []
+def collect(*args: Any, **kwargs: Any) -> Iterable[Host]:
     for host in HOSTS:
         host["enabled"] = True
         host["siteadmins"] = ["bob@example.com"]
@@ -20,5 +19,4 @@ def collect(*args: Any, **kwargs: Any) -> List[Host]:
         source = kwargs.get("source")
         if source:
             host["properties"].append(source)
-        hosts.append(Host(**host))
-    return hosts
+        yield Host(**host)

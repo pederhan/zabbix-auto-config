@@ -1,3 +1,6 @@
+"""Source collector that returns a list instead of a generator."""
+
+from typing import Any, List
 from zabbix_auto_config.models import Host
 
 HOSTS = [
@@ -10,7 +13,8 @@ HOSTS = [
 ]
 
 
-def collect(*args, **kwargs):
+def collect(*args: Any, **kwargs: Any) -> List[Host]:
+    hosts = []
     for host in HOSTS:
         host["enabled"] = True
         host["siteadmins"] = ["bob@example.com"]
@@ -18,4 +22,5 @@ def collect(*args, **kwargs):
         source = kwargs.get("source")
         if source:
             host["properties"].append(source)
-        yield Host(**host)
+        hosts.append(Host(**host))
+    return hosts

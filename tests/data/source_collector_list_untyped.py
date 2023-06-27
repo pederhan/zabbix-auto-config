@@ -1,4 +1,6 @@
-from zabbix_auto_config.models import Host
+"""Source collector that returns a list instead of a generator."""
+
+import zabbix_auto_config.models
 
 HOSTS = [
     {
@@ -11,6 +13,7 @@ HOSTS = [
 
 
 def collect(*args, **kwargs):
+    hosts = []
     for host in HOSTS:
         host["enabled"] = True
         host["siteadmins"] = ["bob@example.com"]
@@ -18,4 +21,5 @@ def collect(*args, **kwargs):
         source = kwargs.get("source")
         if source:
             host["properties"].append(source)
-        yield Host(**host)
+        hosts.append(zabbix_auto_config.models.Host(**host))
+    return hosts

@@ -3,7 +3,7 @@
 Leading underscore in module name to avoid name collision with built-in module `types`.
 """
 
-from typing import Any, Protocol, TypedDict, runtime_checkable, List
+from typing import Any, Protocol, TypedDict, runtime_checkable, Iterable
 from .models import Host, SourceCollectorSettings
 
 
@@ -11,8 +11,9 @@ from .models import Host, SourceCollectorSettings
 class SourceCollectorModule(Protocol):
     """Module that collects hosts from a source."""
 
-    def collect(self, *args: Any, **kwargs: Any) -> List[Host]:
-        """Collect hosts from the given source. Returns a list of Host objects"""
+    def collect(self, *args: Any, **kwargs: Any) -> Iterable[Host]:
+        """Collect hosts from the given source. Returns an iterable of Host objects.
+        Should be a generator function."""
         ...
 
 
