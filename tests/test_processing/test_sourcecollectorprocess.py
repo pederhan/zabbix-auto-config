@@ -1,9 +1,12 @@
 import multiprocessing
+import sys
 import time
 from typing import List
 
-from zabbix_auto_config.processing import SourceCollectorProcess
+import pytest
+
 from zabbix_auto_config.models import Host, SourceCollectorSettings
+from zabbix_auto_config.processing import SourceCollectorProcess
 
 
 class SourceCollector:
@@ -22,6 +25,10 @@ class FaultySourceCollector:
         raise Exception("Source collector error!!")
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="multiprocessing.Queue.qsize() is not implemented on macOS",
+)
 def test_source_collector_process():
     process = SourceCollectorProcess(
         name="test-source",
