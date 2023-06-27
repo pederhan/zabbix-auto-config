@@ -11,7 +11,7 @@
 
 * Synchronization object that lets us know when all sources have finished collecting at least once.
 * Maintain the same "queues" structure in the health file by filing the source collector queue under the name "source_hosts". This will avoid breaking existing health checks that rely on the queue structure.
-
+* Max source queue size. What to do when it's full? Discard, block or throw exception?
 
 # MAYBE
 
