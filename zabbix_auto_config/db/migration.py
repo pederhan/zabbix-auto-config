@@ -1,3 +1,9 @@
+"""Very simple migration system for ZAC. Only supports upgrading, not downgrading for now.
+
+In the future, we should either use Alembic or write a migration system that
+provides downgrading capabilities. For now, this is good enough.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -11,8 +17,9 @@ if TYPE_CHECKING:
     from psycopg2 import connection as DBConnection
     from psycopg2 import cursor as Cursor
 
+SemverType = Tuple[int, int, int]
 
-def get_zac_version() -> Tuple[int, int, int]:
+def get_zac_version() -> SemverType:
     from ..__about__ import __version__
 
     res = __version__.split(".")
@@ -56,26 +63,15 @@ def run_migrations(config: ZacSettings) -> None:
     # TODO: add rollback on failure
 
 
-def _do_run_migrations(cursor: Cursor, version: Tuple[int, int, int]) -> None:
-    def run(func: Callable[[Cursor], None], cursor: Cursor) -> None:
-        """Logs the migration and runs it."""
-        logging.debug("Running migration: %s", func.__name__)
-        func(cursor)
-
+def _do_run_migrations(cursor: Cursor, version: SemverType) -> None:
     # Run through all migrations in order
     # E.g. 1.0.0 -> 1.0.1 -> 1.1.0 -> 1.1.1 -> 1.1.2 -> 2.0.0
-    for major in range(version[0] + 1):
-        for minor in range(version[1] + 1):
-            for patch in range(version[2] + 1):
-                if major in MIGRATIONS["major"]:
-                    for migration in MIGRATIONS["major"][major]:
-                        run(migration, cursor)
-                if minor in MIGRATIONS["minor"]:
-                    for migration in MIGRATIONS["minor"][minor]:
-                        run(migration, cursor)
-                if patch in MIGRATIONS["patch"]:
-                    for migration in MIGRATIONS["patch"][patch]:
-                        run(migration, cursor)
+    for version, migrations in MIGRATIONS.items():
+        version_str = ".".join(str(v) for v in version)
+        logging.debug("Running DB migrations for version: %s", version_str)
+        for migration in migrations:
+            logging.debug("Running DB migration: %s", migration.__name__)
+            migration(cursor)
 
 
 # TODO: determine which version we are on and which migrations we need to run
@@ -103,22 +99,17 @@ def _add_hosts_source_column_timestamp(cursor: Cursor) -> None:
         logging.info("Added 'timestamp' column to 'hosts_source' table.")
 
 
-MIGRATIONS = {
-    "major": {
-        1: [],
-        2: [],
-        3: [],
-    },
-    "minor": {
-        1: [],
-        2: [
-            _add_hosts_source_column_timestamp,
-        ],
-        3: [],
-    },
-    "patch": {
-        1: [],
-        2: [],
-        3: [],
-    },
-}  # type: Dict[str, Dict[int, List[Callable[[Cursor], None]]]]
+# TODO: in the future we could store migrations in modules named after the semver
+# they are for. E.g. 
+# * 0.2.0.py, 0.2.1.py, 0.3.0.py, etc. OR 0/2/0.py, 0/2/1.py, 0/3/0.py, etc.
+
+# Mapping of migrations to run per version. Sorted by semver (major, minor, patch)
+# Each migration is a function that takes a cursor and performs the migration
+# Each migration function should be idempotent, and thus safe to run multiple times.
+# Versions should be in ascending order.
+_MIGRATIONS = {
+    (0, 2, 0): [_add_hosts_source_column_timestamp],
+}  # type: Dict[SemverType, List[Callable[[Cursor], None]]]
+
+# Ensure keys are sorted by semver (major, minor, patch)
+MIGRATIONS = {version: _MIGRATIONS[version] for version in sorted(_MIGRATIONS)}
