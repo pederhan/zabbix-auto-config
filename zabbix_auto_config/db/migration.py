@@ -60,8 +60,6 @@ def run_migrations(config: ZacSettings) -> None:
     finally:
         connection.close()
 
-    # TODO: add rollback on failure
-
 
 def _do_run_migrations(cursor: Cursor, version: SemverType) -> None:
     # Run through all migrations in order
@@ -74,34 +72,31 @@ def _do_run_migrations(cursor: Cursor, version: SemverType) -> None:
             migration(cursor)
 
 
-# TODO: determine which version we are on and which migrations we need to run
-
-
 def _add_hosts_source_column_timestamp(cursor: Cursor) -> None:
-    # Check if the timestamp column exists
+    table = "hosts_source"
+    column = "timestamp"
+
+    # Check if the column exists
     cursor.execute(
-        """
+        f"""
         SELECT column_name 
         FROM information_schema.columns 
-        WHERE table_name='hosts_source' and column_name='timestamp';
+        WHERE table_name='{table}' and column_name='{column}';
     """
     )
-    result = cursor.fetchone()
+    if cursor.fetchone():
+        logging.debug("Column '%s' already exists in '%s' table.", column, table)
+        return
 
-    # If the column does not exist, add it
-    if not result:
-        cursor.execute(
-            """
-            ALTER TABLE hosts_source 
-            ADD COLUMN timestamp timestamp WITHOUT TIME ZONE NOT NULL DEFAULT now();
-        """
-        )
-        logging.info("Added 'timestamp' column to 'hosts_source' table.")
+    # Column does not exist, add it
+    cursor.execute(
+        f"""
+        ALTER TABLE {table} 
+        ADD COLUMN {column} timestamp WITHOUT TIME ZONE NOT NULL DEFAULT now();
+    """
+    )
+    logging.info("Added '%s' column to '%s' table.", column, table)
 
-
-# TODO: in the future we could store migrations in modules named after the semver
-# they are for. E.g. 
-# * 0.2.0.py, 0.2.1.py, 0.3.0.py, etc. OR 0/2/0.py, 0/2/1.py, 0/3/0.py, etc.
 
 # Mapping of migrations to run per version. Sorted by semver (major, minor, patch)
 # Each migration is a function that takes a cursor and performs the migration
@@ -113,3 +108,7 @@ _MIGRATIONS = {
 
 # Ensure keys are sorted by semver (major, minor, patch)
 MIGRATIONS = {version: _MIGRATIONS[version] for version in sorted(_MIGRATIONS)}
+
+# TODO: in the future we could store migrations in modules named after the semver
+# they are for. E.g.
+# * 0.2.0.py, 0.2.1.py, 0.3.0.py, etc. OR 0/2/0.py, 0/2/1.py, 0/3/0.py, etc.
