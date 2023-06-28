@@ -9,3 +9,4 @@ def test_migrations_are_sorted():
 def test_run_migrations_mock():
     # TODO: mock database connection and cursor
     # OR: use a real database (how in GitHub Actions?)
+    pass
