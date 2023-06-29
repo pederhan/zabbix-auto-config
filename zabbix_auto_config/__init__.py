@@ -74,7 +74,7 @@ def write_health(health_file, processes, queue, failsafe):
         "cwd": os.getcwd(),
         "all_ok": True,
         "processes": [],
-        "queue": queue.qsize(),
+        "queues": {"sources": queue.qsize()},
         "failsafe": failsafe,
     }
 
