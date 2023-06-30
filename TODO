@@ -1,17 +1,25 @@
 # IMPORTANT
 
-* Add timestamp field to `hosts_source` table. This will allow us to know when a source was last updated. We can then use this to determine which sources to remove from the `hosts_source` table. This lets us remove stale hosts simply from checking the timestamp. 
+* Source host max age can't be lower than the source collector update interval. If it is, hosts will flip-flop between enabled and disabled due to being removed from the source hosts table, then added again by the source collector. We can still remove stale hosts at a fairly frequent interval, but the max age should be at least as high as the source collector update interval.
 
-* We should probably add indexes for the `data->'hostname'`, `data->'sources'`, and `timestamp` fields.
-
+* Investigate why a bunch of hosts that should have been removed were not removed. Why? When querying the tables manually, the hosts weren't there, but in the program, they somehow were. WTF?
 
 ~~ Need to fetch all hostnames from `hosts_source`, all hostnames from `hostnames`, then check which ones we should remove. ~~
 
 # PROBABLY A GOOD IDEA
 
-* Synchronization object that lets us know when all sources have finished collecting at least once.
-* Maintain the same "queues" structure in the health file by filing the source collector queue under the name "source_hosts". This will avoid breaking existing health checks that rely on the queue structure.
+* Synchronization object that lets us know when all sources have finished collecting at least once. Or maybe not? We can just remove stale hosts whenever we want...
 * Max source queue size. What to do when it's full? Discard, block or throw exception?
+* Add index to `hosts` table for `data->>'enabled'` field:
+    ```sql
+    CREATE INDEX idx_hosts_on_enabled_true
+    ON hosts ((data->>'enabled'))
+    WHERE (data->>'enabled')::boolean IS TRUE;
+    ```
+* Add configuration for max source host age and frequency of stale source host removal.
+* Add indexes for the `data->'hostname'`, `data->'sources'`, and `timestamp` fields in the `hosts_source` table.
+* Add index for `data->>'enabled'` field in the `hosts` table.
+    * This field is queried by the Zabbix host, hostgroup and template processes. So at least 3:1 ratio of reads to writes.
 
 # MAYBE
 
