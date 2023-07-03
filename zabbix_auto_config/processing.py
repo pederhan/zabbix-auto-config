@@ -215,7 +215,7 @@ class SourceHostRemoverProcess(BaseProcess):
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
-        self.max_age = 30  # seconds
+        self.max_age = 3600  # seconds
 
         try:
             self.db_connection = psycopg2.connect(self.db_uri)
@@ -223,7 +223,7 @@ class SourceHostRemoverProcess(BaseProcess):
             logging.error("Unable to connect to database.")
             raise exceptions.ZACException(*e.args)
 
-        self.update_interval = 300
+        self.update_interval = 360
 
     def work(self) -> None:
         time.sleep(15)
