@@ -7,17 +7,18 @@ provides downgrading capabilities. For now, this is good enough.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Dict, List, Tuple
 
 import psycopg2
 
-from ..models import ZacSettings
 from ..__about__ import __version__
+from ..models import ZacSettings
 
 if TYPE_CHECKING:
+    from typing import Final
+
     from psycopg2 import connection as DBConnection
     from psycopg2 import cursor as Cursor
-    from typing import Final
 
 SemverType = Tuple[int, int, int]
 
@@ -176,19 +177,14 @@ def create_migrations_table_if_not_exists(cursor: Cursor) -> None:
 
 def table_exists(table: str, cursor: Cursor) -> bool:
     cursor.execute(
-        f"""
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_name = '{table}'
-        );
         """
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_name = %s;
+        """,
+        (table,),
     )
-    result = cursor.fetchone()
-
-    if result:
-        return bool(result[0])
-    else:
-        return False
+    return True if cursor.fetchone() else False
 
 
 def column_exists(column: str, table: str, cursor: Cursor) -> bool:
@@ -196,8 +192,9 @@ def column_exists(column: str, table: str, cursor: Cursor) -> bool:
         f"""
         SELECT column_name 
         FROM information_schema.columns 
-        WHERE table_name='{table}' and column_name='{column}';
-    """
+        WHERE table_name=%s and column_name=%s;
+        """,
+        (table, column),
     )
     return True if cursor.fetchone() else False
 
@@ -253,7 +250,3 @@ _MIGRATIONS = {
 MIGRATIONS = {
     version: _MIGRATIONS[version] for version in sorted(_MIGRATIONS)
 }  # type: Dict[SemverType, List[Callable[[Cursor], None]]]
-
-# TODO: in the future we could store migrations in modules named after the semver
-# they are for. E.g.
-# * 0.2.0.py, 0.2.1.py, 0.3.0.py, etc. OR 0/2/0.py, 0/2/1.py, 0/3/0.py, etc.
