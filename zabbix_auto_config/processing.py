@@ -224,10 +224,13 @@ class SourceHostRemoverProcess(BaseProcess):
             raise exceptions.ZACException(*e.args)
 
         self.update_interval = 360
+        self.first_run = True
 
     def work(self) -> None:
-        time.sleep(15)
         # FIXME: Don't do anything until all sources have been collected from at least once
+        if self.first_run:
+            time.sleep(self.update_interval)
+            self.first_run = False
         self.remove_hosts()
 
     def remove_hosts(self) -> None:
