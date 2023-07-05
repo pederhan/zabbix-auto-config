@@ -139,12 +139,13 @@ def main():
         )
         processes.append(process)
 
-        process = processing.SourceHostRemoverProcess(
-            "source-host-remover", state_manager.dict(), config.zac.db_uri
+        process = processing.SourceMergerProcess(
+            "source-merger",
+            state_manager.dict(),
+            config.zac.db_uri,
+            config.zac.host_modifier_dir,
+            config.source_collectors,
         )
-        processes.append(process)
-
-        process = processing.SourceMergerProcess("source-merger", state_manager.dict(), config.zac.db_uri, config.zac.host_modifier_dir)
         processes.append(process)
 
         process = processing.ZabbixHostUpdater("zabbix-host-updater", state_manager.dict(), config.zac.db_uri, config.zabbix)

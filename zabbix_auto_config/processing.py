@@ -204,49 +204,6 @@ class SourceCollectorProcess(BaseProcess):
             )
 
 
-class SourceHostRemoverProcess(BaseProcess):
-    """Removes stale source hosts from the database.
-
-    A stale source is defined as a source that hasn't been seen in a given amount of time.
-    """
-
-    def __init__(self, name, state: dict, db_uri: str):
-        super().__init__(name, state)
-
-        self.db_uri = db_uri
-        self.db_source_table = "hosts_source"
-        self.max_age = 3600  # seconds
-
-        try:
-            self.db_connection = psycopg2.connect(self.db_uri)
-        except psycopg2.OperationalError as e:
-            logging.error("Unable to connect to database.")
-            raise exceptions.ZACException(*e.args)
-
-        self.update_interval = 360
-        self.first_run = True
-
-    def work(self) -> None:
-        # FIXME: Don't do anything until all sources have been collected from at least once
-        if self.first_run:
-            time.sleep(self.update_interval)
-            self.first_run = False
-        self.remove_hosts()
-
-    def remove_hosts(self) -> None:
-        """Deletes all source hosts from the database that are older than a given age."""
-        with self.db_connection, self.db_connection.cursor() as db_cursor:
-            query = sql.SQL(
-                f"""
-                DELETE FROM {self.db_source_table}
-                WHERE timestamp < (NOW() - INTERVAL %s)
-                """
-            )
-            db_cursor.execute(query, (f"{self.max_age} seconds",))
-            logging.info("Removed %d stale source hosts", db_cursor.rowcount)
-            self.db_connection.commit()
-
-
 class SourceHandlerProcess(BaseProcess):
     def __init__(
         self,
@@ -340,13 +297,21 @@ class SourceHandlerProcess(BaseProcess):
             )
 
 class SourceMergerProcess(BaseProcess):
-    def __init__(self, name, state, db_uri, host_modifier_dir):
+    def __init__(
+        self,
+        name,
+        state,
+        db_uri,
+        host_modifier_dir,
+        source_collectors: Dict[str, models.SourceCollectorSettings],
+    ):
         super().__init__(name, state)
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
         self.db_hosts_table = "hosts"
         self.host_modifier_dir = host_modifier_dir
+        self.source_collectors = source_collectors
 
         self.host_modifiers = self.get_host_modifiers()
         logging.info("Loaded %d host modifiers: %s", len(self.host_modifiers), ", ".join([repr(modifier["name"]) for modifier in self.host_modifiers]))
@@ -359,6 +324,17 @@ class SourceMergerProcess(BaseProcess):
             sys.exit(1)
 
         self.update_interval = 60
+        self.first_run = True
+
+    def _first_sleep_duration(self) -> int:
+        """Gets the longest source collector update interval."""
+        return max(
+            (
+                collector.update_interval
+                for collector in self.source_collectors.values()
+            ),
+            default=0,
+        )
 
     def get_host_modifiers(self) -> List[HostModifierDict]:
         sys.path.append(self.host_modifier_dir)
@@ -391,9 +367,14 @@ class SourceMergerProcess(BaseProcess):
         return host_modifiers
 
     def work(self):
+        # TODO: detect when all sources have collected instead of static sleep duration
+        if self.first_run:
+            time.sleep(self._first_sleep_duration())
+            self.first_run = False
+        self.remove_stale_source_hosts()
         self.merge_sources()
 
-    def merge_hosts(self, hostname):
+    def merge_hosts(self, hostname: str) -> Optional[models.Host]:
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             db_cursor.execute(f"SELECT data FROM {self.db_source_table} WHERE data->>'hostname' = %s", [hostname])
             hosts = [models.Host(**t[0]) for t in db_cursor.fetchall()]
@@ -407,6 +388,21 @@ class SourceMergerProcess(BaseProcess):
             merged_host.merge(host)
 
         return merged_host
+
+    def remove_stale_source_hosts(self) -> None:
+        """Removes source hosts that haven't been collected in a while."""
+        # MAX_AGE = int(datetime.timedelta(hours=1).total_seconds())
+        MAX_AGE = int(datetime.timedelta(seconds=180).total_seconds())
+
+        with self.db_connection, self.db_connection.cursor() as db_cursor:
+            db_cursor.execute(
+                f"""
+                DELETE FROM {self.db_source_table}
+                WHERE timestamp < (NOW() - INTERVAL '%s seconds')
+                """,
+                (MAX_AGE,),
+            )
+            logging.info("Removed %d stale source hosts", db_cursor.rowcount)
 
     def merge_sources(self):
         start_time = time.time()
