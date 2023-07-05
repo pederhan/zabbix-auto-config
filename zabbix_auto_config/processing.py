@@ -391,8 +391,7 @@ class SourceMergerProcess(BaseProcess):
 
     def remove_stale_source_hosts(self) -> None:
         """Removes source hosts that haven't been collected in a while."""
-        # MAX_AGE = int(datetime.timedelta(hours=1).total_seconds())
-        MAX_AGE = int(datetime.timedelta(seconds=180).total_seconds())
+        MAX_AGE = int(datetime.timedelta(hours=1).total_seconds())
 
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             db_cursor.execute(
