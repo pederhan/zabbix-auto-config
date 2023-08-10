@@ -418,8 +418,7 @@ class SourceMergerProcess(BaseProcess):
                 assert (
                     host.hostname == modified_host.hostname
                 ), f"Modifier changed the hostname, '{host.hostname}' -> '{modified_host.hostname}'"
-                # Re-validate the host after modification
-                host = host.model_validate(modified_host)
+                host = modified_host
             except AssertionError as e:
                 logging.warning(
                     "Host, '%s', was modified to be invalid by modifier: '%s'. Error: %s",
