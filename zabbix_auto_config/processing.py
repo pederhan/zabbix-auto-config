@@ -314,13 +314,19 @@ class SourceHandlerProcess(BaseProcess):
             for removed_hostname in removed_hostnames:
                 db_cursor.execute(f"DELETE FROM {self.db_source_table} WHERE data->>'hostname' = %s AND data->'sources' ? %s", [removed_hostname, source])
                 actions[HostAction.DELETE] += 1
-
+                if self.stop_event.set():
+                    logging.debug("Told to stop. Breaking")
+                    break
+        
         with self.db_connection, self.db_connection.cursor() as db_cursor:
             current_hosts = self.get_current_source_hosts(db_cursor, source)
             for host in hosts:
                 current_host = current_hosts.get(host.hostname)
                 action = self.handle_source_host(db_cursor, host, current_host, source)
                 actions[action] += 1
+                if self.stop_event.set():
+                    logging.debug("Told to stop. Breaking")
+                    break
 
         logging.info(
             "Done handling hosts from source, '%s', in %.2f seconds. Equal hosts: %d, replaced hosts: %d, inserted hosts: %d, removed hosts: %d. Next update: %s",
