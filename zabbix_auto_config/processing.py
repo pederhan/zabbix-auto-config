@@ -20,7 +20,7 @@ from pydantic import ValidationError
 import pyzabbix
 import requests.exceptions
 
-
+from . import compat
 from . import exceptions
 from . import models
 from . import utils
@@ -335,13 +335,14 @@ class SourceHandlerProcess(BaseProcess):
 
 
 class SourceMergerProcess(BaseProcess):
-    def __init__(self, name, state, db_uri, host_modifier_dir):
+    def __init__(self, name, state, db_uri, config: models.Settings):
         super().__init__(name, state)
 
         self.db_uri = db_uri
         self.db_source_table = "hosts_source"
         self.db_hosts_table = "hosts"
-        self.host_modifier_dir = host_modifier_dir
+        self.host_modifier_dir = config.zac.host_modifier_dir
+        self.config = config
 
         self.host_modifiers = self.get_host_modifiers()
         logging.info("Loaded %d host modifiers: %s", len(self.host_modifiers), ", ".join([repr(modifier["name"]) for modifier in self.host_modifiers]))
@@ -375,10 +376,17 @@ class SourceMergerProcess(BaseProcess):
                     module_name,
                 )
                 continue
-
+            cfg = self.config.host_modifiers.get(module_name)
+            if cfg:
+                config = cfg.model_dump()
+                for key in cfg.model_fields: # pop off model fields
+                    config.pop(key, None)
+            else:
+                config = {}
             host_modifier = {
                 "name": module_name,
                 "module": module,
+                "config": config,
             }  # type: HostModifierDict
 
             host_modifiers.append(host_modifier)
@@ -409,9 +417,7 @@ class SourceMergerProcess(BaseProcess):
 
         for host_modifier in self.host_modifiers:
             try:
-                modified_host = host_modifier["module"].modify(
-                    host.model_copy(deep=True)
-                )
+                modified_host = compat.run_host_modifier(host_modifier, host)
                 assert isinstance(
                     modified_host, models.Host
                 ), f"Modifier returned invalid type: {type(modified_host)}"

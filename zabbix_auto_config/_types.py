@@ -3,7 +3,7 @@
 Leading underscore in module name to avoid name collision with built-in module `types`.
 """
 
-from typing import Any, Protocol, TypedDict, runtime_checkable, List
+from typing import Any, Dict, Protocol, TypedDict, runtime_checkable, List
 from .models import Host, SourceCollectorSettings
 
 
@@ -20,7 +20,7 @@ class SourceCollectorModule(Protocol):
 class HostModifierModule(Protocol):
     """Module that modifies a Host object."""
 
-    def modify(self, host: Host) -> Host:
+    def modify(self, host: Host, *args, **kwargs) -> Host:
         """Takes a Host object and returns a modified Host object."""
         ...
 
@@ -32,6 +32,7 @@ class HostModifierDict(TypedDict):
 
     name: str
     module: HostModifierModule
+    config: Dict[str, Any] # derived from HostModifierSettings, but serialized to dict
 
 
 class SourceCollectorDict(TypedDict):

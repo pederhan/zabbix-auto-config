@@ -67,6 +67,10 @@ class ZacSettings(ConfigBaseModel):
     health_file: Optional[Path] = None
 
 
+class HostModifierSettings(ConfigBaseModel, extra="allow"):
+    module_name: str
+
+
 class SourceCollectorSettings(ConfigBaseModel, extra="allow"):
     module_name: str
     update_interval: int
@@ -115,6 +119,7 @@ class Settings(ConfigBaseModel):
     zac: ZacSettings
     zabbix: ZabbixSettings
     source_collectors: Dict[str, SourceCollectorSettings]
+    host_modifiers: Dict[str, HostModifierSettings] = {}
 
 
 class Interface(BaseModel):

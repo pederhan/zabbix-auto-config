@@ -87,9 +87,10 @@ EOF
 cat > path/to/host_modifier_dir/mod.py << EOF
 from zabbix_auto_config.models import Host
 
-def modify(host: Host) -> Host:
+def modify(host: Host, **kwargs) -> Host:
+    bar_prop = kwargs.get("bar_prop", "barry")
     if host.hostname == "bar.example.com":
-        host.properties.add("barry")
+        host.properties.add(bar_prop)
     return host
 EOF
 cat > path/to/map_dir/property_template_map.txt << EOF
@@ -210,7 +211,9 @@ Any extra config options specified in the configuration file will be passed to t
 
 ## Host modifiers
 
-Host modifiers are Python modules (files) that are placed in a directory defined by the option `host_modifier_dir` in the `[zac]` table of the config file. A host modifier is a module that contains a function named `modify` that takes a `Host` object as its only argument, modifies it, and returns it. Zabbix-auto-config will attempt to load all modules in the given directory.
+Host modifiers are Python modules (files) that are placed in a directory defined by the option `host_modifier_dir` in the `[zac]` table of the config file. A host modifier is a module that contains a function named `modify` which takes a `Host` object, modifies it in some way, and then returns it. Zabbix-auto-config will attempt to load all modules in the given directory. Every host is passed to each host modifier found in the host modifier directory.
+
+Any module that contains a function named `modify` which takes a `Host` as its first and only positional argument, an arbitrary number of keyword arguments and returns a `Host` is recognized as a host modifier module. Type annotations are optional, but recommended.
 
 A host modifier module that adds a given siteadmin to all hosts could look like this:
 
@@ -219,16 +222,28 @@ A host modifier module that adds a given siteadmin to all hosts could look like 
 
 from zabbix_auto_config.models import Host
 
-SITEADMIN = "admin@example.com"
 
-def modify(host: Host) -> Host:
-    host.siteadmins.add(SITEADMIN)
+def modify(host: Host, **kwargs) -> Host:
+    siteadmin = kwargs.get("siteadmin", "admin@example.com")
+    host.siteadmins.add(siteadmin)
     return host
 ```
 
-Any module that contains a function named `modify` which takes a `Host` and returns a `Host` is recognized as a host modifier module. Type annotations are optional, but recommended.
+In the example above, we have a host modifier module that adds a siteadmin to all hosts. 
 
-See the [`Host`](https://github.com/unioslo/zabbix-auto-config/blob/2b45f1cb7da0d46b8b218005ebbf751cb17f8793/zabbix_auto_config/models.py#L111-L123) class in `zabbix_auto_config/models.py` for the available fields that can be accessed and modified. One restriction applies: the `modify` function should _never_ modify the hostname of the host. Attempting to do so will result in an error. 
+See the [`Host`](https://github.com/unioslo/zabbix-auto-config/blob/2b45f1cb7da0d46b8b218005ebbf751cb17f8793/zabbix_auto_config/models.py#L111-L123) class in `zabbix_auto_config/models.py` for the available fields that can be accessed and modified. **NOTE:** The `modify` function should _never_ modify the hostname of the host. Attempting to do so will result in an error. 
+
+The siteadmin to add is configured in the configuration file, and passed to the `modify` function as a keyword argument:
+
+```toml
+[host_modifiers.add_siteadmin]
+module_name = "add_siteadmin"
+siteadmin = "foo@example.com"
+```
+
+Each configuration option apart from `module_name` is passed to the `modify` function as a keyword argument. In the example above, the `siteadmin` option is passed to the `modify` function, and accessed via `kwargs["siteadmin"]` or `kwargs.get("siteadmin")`.
+
+
 
 ## Host inventory
 
