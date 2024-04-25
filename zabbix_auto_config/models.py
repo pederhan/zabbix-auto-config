@@ -188,10 +188,15 @@ class SourceCollectorSettings(ConfigBaseModel, extra="allow"):
         return self
 
 
+class HostModifierSettings(ConfigBaseModel, extra="allow"):
+    pass
+
+
 class Settings(ConfigBaseModel):
     zac: ZacSettings
     zabbix: ZabbixSettings
     source_collectors: Dict[str, SourceCollectorSettings]
+    host_modifiers: Dict[str, HostModifierSettings] = {}
 
 
 class Interface(BaseModel):
