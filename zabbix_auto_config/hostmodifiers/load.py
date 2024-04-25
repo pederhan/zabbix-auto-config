@@ -6,14 +6,14 @@ import os
 import sys
 from typing import List
 
-from zabbix_auto_config.hostmodifiers.base import BaseModifier
-from zabbix_auto_config.hostmodifiers.legacy import LegacyCompatModifier
-from zabbix_auto_config.hostmodifiers.legacy import LegacyModifierModule
+from zabbix_auto_config.hostmodifiers.base import BaseHostModifier
+from zabbix_auto_config.hostmodifiers.legacy import LegacyHostModifierCompat
+from zabbix_auto_config.hostmodifiers.legacy import LegacyHostModifierModule
 from zabbix_auto_config.hostmodifiers.types import HostModifierModule
 from zabbix_auto_config.models import Settings
 
 
-def load_host_modifiers(config: Settings) -> List[BaseModifier]:
+def load_host_modifiers(config: Settings) -> List[BaseHostModifier]:
     modifier_dir = config.zac.host_modifier_dir
 
     sys.path.append(modifier_dir)
@@ -26,7 +26,7 @@ def load_host_modifiers(config: Settings) -> List[BaseModifier]:
     except FileNotFoundError:
         logging.error("Host modifier directory %s does not exist.", modifier_dir)
         sys.exit(1)
-    host_modifiers: List[BaseModifier] = []
+    host_modifiers: List[BaseHostModifier] = []
     for module_name in module_names:
         try:
             module = importlib.import_module(module_name)
@@ -40,11 +40,11 @@ def load_host_modifiers(config: Settings) -> List[BaseModifier]:
 
         # Check if the module is a valid host modifier module
         if isinstance(module, HostModifierModule):
-            modifier = module.Modifier(config)
+            modifier = module.HostModifier(config)
             logging.debug("Loaded host modifier: %s", modifier.name)
         # Check if module is a legacy host modifier module (deprecated)
-        elif isinstance(module, LegacyModifierModule):
-            modifier = LegacyCompatModifier(config, module)
+        elif isinstance(module, LegacyHostModifierModule):
+            modifier = LegacyHostModifierCompat(config, module)
             logging.warning(
                 "Module '%s' is a legacy host modifier module. Legacy support is deprecated and will be removed in a future version.",
                 module_name,

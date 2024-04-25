@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
 from typing import List
-from typing import NamedTuple
 from typing import Protocol
 from typing import Sequence
 from typing import Set
@@ -51,13 +50,6 @@ class HostModifierModule(Protocol):
     def modify(self, host: Host) -> Host:
         """Takes a Host object and returns a modified Host object."""
         ...
-
-
-class HostModifier(NamedTuple):
-    """An imported host modifier."""
-
-    name: str
-    module: HostModifierModule
 
 
 class SourceHosts(TypedDict):

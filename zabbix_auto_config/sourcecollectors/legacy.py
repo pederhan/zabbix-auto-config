@@ -28,7 +28,7 @@ class LegacySourceCollectorModule(Protocol):
 
 class LegacySourceCollectorCompat(BaseSourceCollector):
     """Wrapper around legacy host modifier functions that do not implement
-    the BaseModifier interface."""
+    the BaseHostModifier interface."""
 
     collector: LegacySourceCollectorModule
 
@@ -40,10 +40,10 @@ class LegacySourceCollectorCompat(BaseSourceCollector):
         collector: LegacySourceCollectorModule,
     ) -> None:
         super().__init__(name, config, app_config)
-        if not isinstance(self, LegacySourceCollectorModule):
+        if not isinstance(collector, LegacySourceCollectorModule):
             # TODO: improve logging and error message
             raise TypeError(
-                "LegacyCompatModifier must be used with a legacy host modifier."
+                "LegacyHostModifierCompat must be used with a legacy host modifier."
             )
         self.collector = collector
         self.name = collector.__name__

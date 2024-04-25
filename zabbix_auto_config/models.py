@@ -8,7 +8,9 @@ from typing import List
 from typing import Optional
 from typing import Set
 from typing import Tuple
+from typing import TypeVar
 from typing import Union
+from typing import overload
 
 from pydantic import BaseModel
 from pydantic import BaseModel as PydanticBaseModel
@@ -144,6 +146,10 @@ class ZacSettings(ConfigBaseModel):
             raise TypeError("Log level must be an integer or string.")
 
 
+NotSet = object()
+T = TypeVar("T")
+
+
 class SourceCollectorSettings(ConfigBaseModel, extra="allow"):
     module_name: str
     update_interval: int
@@ -186,6 +192,16 @@ class SourceCollectorSettings(ConfigBaseModel, extra="allow"):
                 f"times update_interval ({self.update_interval}), i.e., greater than {product}. Please adjust accordingly."
             )
         return self
+
+    @overload
+    def get(self, attr: str) -> Any: ...
+    @overload
+    def get(self, attr: str, default: T) -> T: ...
+
+    def get(self, attr: str, default: Union[T, Any] = NotSet) -> Union[Any, T]:
+        if default is NotSet:
+            return getattr(self, attr)
+        return getattr(self, attr, default)
 
 
 class HostModifierSettings(ConfigBaseModel, extra="allow"):

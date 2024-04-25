@@ -45,7 +45,7 @@ def load_source_collectors(config: Settings) -> List[BaseSourceCollector]:
             )
         else:
             logging.error(
-                "Source collector named '%s' is not a valid source collector module",
+                "Module '%s' is not a valid source collector module",
                 source_collector_config.module_name,
             )
             continue

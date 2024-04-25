@@ -5,6 +5,8 @@ from abc import ABC
 from abc import abstractmethod
 from typing import List
 
+from pydantic import RootModel
+
 from zabbix_auto_config.models import Host
 from zabbix_auto_config.models import Settings
 from zabbix_auto_config.models import SourceCollectorSettings
@@ -25,3 +27,6 @@ class BaseSourceCollector(ABC):
     @abstractmethod
     def collect(self) -> List[Host]:
         raise NotImplementedError
+
+    def collect_as_json(self) -> str:
+        return RootModel[List[Host]](self.collect()).model_dump_json(indent=2)

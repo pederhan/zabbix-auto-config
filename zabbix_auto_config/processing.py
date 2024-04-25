@@ -29,13 +29,13 @@ import requests.exceptions
 from packaging.version import Version
 from pydantic import ValidationError
 
+from zabbix_auto_config.hostmodifiers.base import BaseHostModifier
 from zabbix_auto_config.sourcecollectors.base import BaseSourceCollector
 
 from . import compat
 from . import exceptions
 from . import models
 from . import utils
-from ._types import HostModifier
 from ._types import SourceHosts
 from ._types import SourceHostsQueue
 from ._types import ZacTags
@@ -399,7 +399,7 @@ class SourceMergerProcess(BaseProcess):
         name: str,
         state: State,
         db_uri: str,
-        host_modifiers: List[HostModifier],
+        host_modifiers: List[BaseHostModifier],
     ) -> None:
         super().__init__(name, state)
 
@@ -441,7 +441,7 @@ class SourceMergerProcess(BaseProcess):
 
         for host_modifier in self.host_modifiers:
             try:
-                modified_host = host_modifier.module.modify(host.model_copy(deep=True))
+                modified_host = host_modifier.modify(host.model_copy(deep=True))
                 assert isinstance(
                     modified_host, models.Host
                 ), f"Modifier returned invalid type: {type(modified_host)}"

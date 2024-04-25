@@ -9,7 +9,7 @@ from zabbix_auto_config.models import HostModifierSettings
 from zabbix_auto_config.models import Settings
 
 
-class BaseModifier(ABC):
+class BaseHostModifier(ABC):
     def __init__(self, app_config: Settings) -> None:
         self.app_config = app_config
         self.name = __name__

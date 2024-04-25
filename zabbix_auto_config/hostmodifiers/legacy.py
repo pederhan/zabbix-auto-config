@@ -8,13 +8,13 @@ from __future__ import annotations
 from typing import Protocol
 from typing import runtime_checkable
 
-from zabbix_auto_config.hostmodifiers.base import BaseModifier
+from zabbix_auto_config.hostmodifiers.base import BaseHostModifier
 from zabbix_auto_config.models import Host
 from zabbix_auto_config.models import Settings
 
 
 @runtime_checkable
-class LegacyModifierModule(Protocol):
+class LegacyHostModifierModule(Protocol):
     """Protocol type for legacy host modifier modules."""
 
     __name__: str
@@ -23,18 +23,18 @@ class LegacyModifierModule(Protocol):
     def modify(self, host: Host) -> Host: ...
 
 
-class LegacyCompatModifier(BaseModifier):
+class LegacyHostModifierCompat(BaseHostModifier):
     """Wrapper around legacy host modifier functions that do not implement
-    the BaseModifier interface."""
+    the BaseHostModifier interface."""
 
-    modifier: LegacyModifierModule
+    modifier: LegacyHostModifierModule
 
-    def __init__(self, config: Settings, modifier: LegacyModifierModule) -> None:
+    def __init__(self, config: Settings, modifier: LegacyHostModifierModule) -> None:
         super().__init__(config)
-        if not isinstance(self, LegacyModifierModule):
+        if not isinstance(modifier, LegacyHostModifierModule):
             # TODO: improve logging and error message
             raise TypeError(
-                "LegacyCompatModifier must be used with a legacy host modifier."
+                "LegacyHostModifierCompat must be used with a legacy host modifier."
             )
         self.modifier = modifier
         self.name = modifier.__name__

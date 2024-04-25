@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import datetime
-import importlib
-import importlib.metadata
 import json
 import logging
 import multiprocessing
 import os
 import os.path
-import sys
 import time
 from pathlib import Path
 from typing import List
@@ -16,50 +13,15 @@ from typing import List
 import multiprocessing_logging  # type: ignore[import]
 import tomli
 
+from zabbix_auto_config.hostmodifiers.load import load_host_modifiers
 from zabbix_auto_config.sourcecollectors.load import load_source_collectors
 
 from . import models
 from . import processing
 from .__about__ import __version__
 from ._types import HealthDict
-from ._types import HostModifier
-from ._types import HostModifierModule
 from ._types import SourceHostsQueue
 from .state import get_manager
-
-
-def get_host_modifiers(modifier_dir: str) -> List[HostModifier]:
-    sys.path.append(modifier_dir)
-    try:
-        module_names = [
-            filename[:-3]
-            for filename in os.listdir(modifier_dir)
-            if filename.endswith(".py") and filename != "__init__.py"
-        ]
-    except FileNotFoundError:
-        logging.error("Host modififier directory %s does not exist.", modifier_dir)
-        sys.exit(1)
-    host_modifiers = []  # type: List[HostModifier]
-    for module_name in module_names:
-        module = importlib.import_module(module_name)
-        if not isinstance(module, HostModifierModule):
-            logging.warning(
-                "Module '%s' is not a valid host modifier module. Skipping.",
-                module_name,
-            )
-            continue
-        host_modifiers.append(
-            HostModifier(
-                name=module_name,
-                module=module,
-            )
-        )
-    logging.info(
-        "Loaded %d host modifiers: %s",
-        len(host_modifiers),
-        ", ".join([repr(modifier.name) for modifier in host_modifiers]),
-    )
-    return host_modifiers
 
 
 def get_config() -> models.Settings:
@@ -141,7 +103,7 @@ def main() -> None:
     state_manager = get_manager()
 
     # Import host modifier and source collector modules
-    host_modifiers = get_host_modifiers(config.zac.host_modifier_dir)
+    host_modifiers = load_host_modifiers(config)
     source_collectors = load_source_collectors(config)
 
     # Initialize source collector processes from imported modules
