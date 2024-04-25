@@ -13,7 +13,7 @@ from zabbix_auto_config.hostmodifiers.types import HostModifierModule
 from zabbix_auto_config.models import Settings
 
 
-def get_host_modifiers(config: Settings) -> List[BaseModifier]:
+def load_host_modifiers(config: Settings) -> List[BaseModifier]:
     modifier_dir = config.zac.host_modifier_dir
 
     sys.path.append(modifier_dir)
