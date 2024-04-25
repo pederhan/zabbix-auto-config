@@ -9,6 +9,7 @@ import queue
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Dict
 from typing import List
 from typing import MutableMapping
@@ -148,7 +149,7 @@ def mapping_values_with_prefix(
     """Calls `with_prefix` on all items in the values (list) in the mapping `m`."""
     m = copy.copy(m)  # don't modify the original mapping
     for key, value in m.items():
-        new_values = []
+        new_values: List[str] = []
         for v in value:
             try:
                 new_value = with_prefix(text=v, prefix=prefix, separator=separator)
@@ -160,7 +161,7 @@ def mapping_values_with_prefix(
     return m
 
 
-def drain_queue(q: multiprocessing.Queue) -> None:
+def drain_queue(q: multiprocessing.Queue[Any]) -> None:
     """Drains a multiprocessing.Queue by calling `queue.get_nowait()` until the queue is empty."""
     while not q.empty():
         try:

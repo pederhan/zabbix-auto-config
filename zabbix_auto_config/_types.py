@@ -5,18 +5,23 @@ Leading underscore in module name to avoid name collision with built-in module `
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
+from typing import Dict
 from typing import List
 from typing import NamedTuple
 from typing import Protocol
 from typing import Sequence
 from typing import Set
 from typing import Tuple
+from typing import TypeAlias
 from typing import TypedDict
 from typing import runtime_checkable
 
 from .models import Host
-from .models import SourceCollectorSettings
+
+if TYPE_CHECKING:
+    import multiprocessing
 
 
 class ZabbixTag(TypedDict):
@@ -55,13 +60,11 @@ class HostModifier(NamedTuple):
     module: HostModifierModule
 
 
-class SourceCollector(NamedTuple):
-    """The dict created by `zabbix_auto_config.get_source_collectors` for each
-    imported source collector module."""
+class SourceHosts(TypedDict):
+    """Hosts collected from a source."""
 
-    name: str
-    module: SourceCollectorModule
-    config: SourceCollectorSettings
+    source: str
+    hosts: List[Host]
 
 
 class QueueDict(TypedDict):
@@ -78,6 +81,9 @@ class HealthDict(TypedDict):
     pid: int
     cwd: str
     all_ok: bool
-    processes: List[dict]
+    processes: List[Dict[str, Any]]
     queues: List[QueueDict]
     failsafe: int
+
+
+SourceHostsQueue: TypeAlias = "multiprocessing.Queue[SourceHosts]"

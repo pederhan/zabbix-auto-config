@@ -29,12 +29,15 @@ import requests.exceptions
 from packaging.version import Version
 from pydantic import ValidationError
 
+from zabbix_auto_config.sourcecollectors.base import BaseSourceCollector
+
 from . import compat
 from . import exceptions
 from . import models
 from . import utils
 from ._types import HostModifier
-from ._types import SourceCollectorModule
+from ._types import SourceHosts
+from ._types import SourceHostsQueue
 from ._types import ZacTags
 from .errcount import RollingErrorCounter
 from .failsafe import check_failsafe
@@ -127,24 +130,17 @@ class SourceCollectorProcess(BaseProcess):
         self,
         name: str,
         state: State,
-        module: SourceCollectorModule,
-        config: models.SourceCollectorSettings,
-        source_hosts_queue: multiprocessing.Queue,
+        source_collector: BaseSourceCollector,
+        source_hosts_queue: SourceHostsQueue,
     ) -> None:
         super().__init__(name, state)
-        self.module = module
-        self.config = config
+        self.source_collector = source_collector
+        self.config = source_collector.config
 
         self.source_hosts_queue = source_hosts_queue
         self.source_hosts_queue.cancel_join_thread()  # Don't wait for empty queue when exiting
 
         self.update_interval = self.config.update_interval
-
-        # Pop off the config fields from the config we pass to the module
-        # Leaves only the custom options defined for the collector in the config
-        self.collector_config = config.model_dump()
-        for key in self.config.model_fields:
-            self.collector_config.pop(key, None)
 
         # Repeated errors will disable the source
         self.disabled = False
@@ -214,18 +210,18 @@ class SourceCollectorProcess(BaseProcess):
     def collect(self) -> None:
         start_time = time.time()
         try:
-            hosts = self.module.collect(**self.collector_config)
+            hosts = self.source_collector.collect()
             assert isinstance(hosts, list), "Collect module did not return a list"
         except Exception as e:
             raise exceptions.SourceCollectorError(e) from e
 
-        valid_hosts = []  # type: List[models.Host]
+        valid_hosts: List[models.Host] = []
         for host in hosts:
             if self.stop_event.is_set():
                 logging.debug("Told to stop. Breaking")
                 break
 
-            if not isinstance(host, models.Host):
+            if not isinstance(host, models.Host):  # type: ignore # cannot verify that source collectors return correct type
                 raise exceptions.SourceCollectorTypeError(
                     f"Collected object is not a Host object: {host!r}. Type: {type(host)}"
                 )
@@ -234,7 +230,7 @@ class SourceCollectorProcess(BaseProcess):
             valid_hosts.append(host)
 
         # Add source hosts to queue
-        source_hosts = {
+        source_hosts: SourceHosts = {
             "source": self.name,
             "hosts": valid_hosts,
         }
@@ -268,7 +264,7 @@ class SourceHandlerProcess(BaseProcess):
         name: str,
         state: State,
         db_uri: str,
-        source_hosts_queues: List[multiprocessing.Queue],
+        source_hosts_queues: List[SourceHostsQueue],
     ) -> None:
         super().__init__(name, state)
 

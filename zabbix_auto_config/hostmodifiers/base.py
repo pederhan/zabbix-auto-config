@@ -10,11 +10,11 @@ from zabbix_auto_config.models import Settings
 
 
 class BaseModifier(ABC):
-    def __init__(self, config: Settings) -> None:
-        self.zac_config = config
+    def __init__(self, app_config: Settings) -> None:
+        self.app_config = app_config
         self.name = __name__
         self.logger = logging.getLogger(__name__)
-        conf = config.host_modifiers.get(self.name, None)
+        conf = app_config.host_modifiers.get(self.name, None)
         if not conf:
             self.logger.debug("No configuration found for host modifier %s", self.name)
             conf = HostModifierSettings()

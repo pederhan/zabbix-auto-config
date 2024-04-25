@@ -16,49 +16,16 @@ from typing import List
 import multiprocessing_logging  # type: ignore[import]
 import tomli
 
+from zabbix_auto_config.sourcecollectors.load import load_source_collectors
+
 from . import models
 from . import processing
 from .__about__ import __version__
 from ._types import HealthDict
 from ._types import HostModifier
 from ._types import HostModifierModule
-from ._types import SourceCollector
-from ._types import SourceCollectorModule
+from ._types import SourceHostsQueue
 from .state import get_manager
-
-
-def get_source_collectors(config: models.Settings) -> List[SourceCollector]:
-    source_collector_dir = config.zac.source_collector_dir
-    sys.path.append(source_collector_dir)
-
-    source_collectors = []  # type: List[SourceCollector]
-    for (
-        source_collector_name,
-        source_collector_config,
-    ) in config.source_collectors.items():
-        try:
-            module = importlib.import_module(source_collector_config.module_name)
-        except ModuleNotFoundError:
-            logging.error(
-                "Unable to find source collector named '%s' in '%s'",
-                source_collector_config.module_name,
-                source_collector_dir,
-            )
-            continue
-        if not isinstance(module, SourceCollectorModule):
-            logging.error(
-                "Source collector named '%s' is not a valid source collector module",
-                source_collector_config.module_name,
-            )
-            continue
-        source_collectors.append(
-            SourceCollector(
-                name=source_collector_name,
-                module=module,
-                config=source_collector_config,
-            )
-        )
-    return source_collectors
 
 
 def get_host_modifiers(modifier_dir: str) -> List[HostModifier]:
@@ -108,7 +75,7 @@ def get_config() -> models.Settings:
 def write_health(
     health_file: Path,
     processes: List[processing.BaseProcess],
-    queues: List[multiprocessing.Queue],
+    queues: List[SourceHostsQueue],
     failsafe: int,
 ) -> None:
     now = datetime.datetime.now()
@@ -148,7 +115,7 @@ def write_health(
 
 
 def log_process_status(processes: List[processing.BaseProcess]) -> None:
-    process_statuses = []
+    process_statuses: List[str] = []
 
     for process in processes:
         process_name = process.name
@@ -175,20 +142,19 @@ def main() -> None:
 
     # Import host modifier and source collector modules
     host_modifiers = get_host_modifiers(config.zac.host_modifier_dir)
-    source_collectors = get_source_collectors(config)
+    source_collectors = load_source_collectors(config)
 
     # Initialize source collector processes from imported modules
-    source_hosts_queues = []  # type: List[multiprocessing.Queue[models.Host]]
-    src_processes = []  # type: List[processing.BaseProcess]
+    source_hosts_queues: List[SourceHostsQueue] = []
+    src_processes: List[processing.BaseProcess] = []
     for source_collector in source_collectors:
         # Each source collector has its own queue
-        source_hosts_queue = multiprocessing.Queue(maxsize=1)  # type: multiprocessing.Queue[models.Host]
+        source_hosts_queue: SourceHostsQueue = multiprocessing.Queue(maxsize=1)
         source_hosts_queues.append(source_hosts_queue)
         process: processing.BaseProcess = processing.SourceCollectorProcess(
             source_collector.name,
             state_manager.State(),
-            source_collector.module,
-            source_collector.config,
+            source_collector,
             source_hosts_queue,
         )
         src_processes.append(process)
@@ -274,7 +240,7 @@ def main() -> None:
         )
 
         for pr in processes:
-            logging.info("Terminating: %s(%d)", process.name, process.pid)
+            logging.info("Terminating: %s(%d)", pr.name, pr.pid)
             pr.terminate()
 
         def get_alive():
