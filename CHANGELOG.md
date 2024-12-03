@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-<!-- ## [Unreleased] -->
+## Unreleased
+
+### Added
+
+- Default value for source collector config `source_collectors.<name>.error_duration` is now computed from `round(error_tolerance * update_interval + (update_interval*0.9))`
 
 ## [0.2.0](https://github.com/unioslo/zabbix-auto-config/releases/tag/zac-v0.2.0)
 
