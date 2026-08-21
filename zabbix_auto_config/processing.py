@@ -1726,7 +1726,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
 
     def _sync_macros(self, db_host: models.Host, zabbix_host: Host) -> None:
         """Sync macros of a Zabbix host with the macros defined on the DB host."""
-        # HACK: in order to sync macros using the ZabbixHostGroupUpdater
+        # HACK: in order to sync macros using the hosts already fetched here,
         # instead of making another process (i.e. ZabbixHostMacroUpdater),
         # we determine macros here based on the mapping file, then compare them
         # with the macros from the Zabbix host. Macros are thus NOT synced
