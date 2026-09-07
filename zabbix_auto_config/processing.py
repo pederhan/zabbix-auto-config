@@ -15,7 +15,6 @@ from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 from enum import IntEnum
-from enum import auto
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import TypeVar
@@ -1137,19 +1136,6 @@ class ProxySyncAction(IntEnum):
     """Proxy on host did not change due to already being correctly configured."""
 
 
-class ProxyType(IntEnum):
-    """Type of proxy."""
-
-    SERVER = auto()
-    """Zabbix server."""
-
-    PROXY = auto()
-    """Proxy server."""
-
-    PROXY_GROUP = auto()
-    """Proxy group."""
-
-
 class ZabbixHostUpdater(ZabbixUpdater):
     def __init__(self, name: str, state: State, config: Settings) -> None:
         super().__init__(name, state, config)
@@ -1760,11 +1746,12 @@ class ZabbixHostUpdater(ZabbixUpdater):
         """
 
         result: ProxySyncAction | None = None
-        proxy_type: ProxyType | None = None
 
         if self.use_proxy_groups:
             result = self._sync_proxy_group(db_host, zabbix_host, proxy_groups)
-            proxy_type = ProxyType.PROXY_GROUP
+            logger.debug(
+                "Proxy group assignment", host=zabbix_host.host, action=result.name
+            )
 
         if result is None or result < ProxySyncAction.ASSIGNED:
             # Fall back to a regular proxy if any of:
@@ -1774,16 +1761,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
             #    b. No matching proxy groups (NO_MATCH)
             #    c. The host had its proxy group removed (CLEARED)
             result = self._sync_proxy(db_host, zabbix_host, proxies)
-            proxy_type = ProxyType.PROXY
-
-        # NOTE: Zabbix server unhandled here. Technically, once we remove a proxy,
-        # it becomes monitored by Zabbix Server. Do we mention that?
-        logger.debug(
-            "Host monitoring result",
-            host=zabbix_host.host,
-            proxy_type=proxy_type.name if proxy_type else None,
-            action=result.name if result else None,
-        )
+            logger.debug("Proxy assignment", host=zabbix_host.host, action=result.name)
 
     def _sync_interfaces(self, db_host: models.Host, zabbix_host: Host) -> None:
         """Sync interfaces of a Zabbix host with the interfaces defined on the DB host."""
