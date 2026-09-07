@@ -1618,39 +1618,33 @@ class ZabbixHostUpdater(ZabbixUpdater):
 
     # TODO: cache this per iteration somehow? Is everything hashable?
     def _filter_proxy_groups_by_proxy(
-        self, proxy_pattern: str, proxy_groups: dict[str, ProxyGroup]
+        self, proxy_pattern: str, proxy_groups: list[ProxyGroup]
     ) -> list[ProxyGroup]:
         """Get a list of proxy groups that contain proxies matching the given pattern."""
         return [
             group
-            for group in proxy_groups.values()
+            for group in proxy_groups
             if any(re.match(proxy_pattern, proxy.name) for proxy in group.proxies)
         ]
 
     def _filter_proxy_groups_by_name(
-        self, group_name_pattern: str, proxy_groups: dict[str, ProxyGroup]
+        self, group_name_pattern: str, proxy_groups: list[ProxyGroup]
     ) -> list[ProxyGroup]:
         """Get a list of proxy groups whose names match the given pattern."""
         return [
-            group
-            for group in proxy_groups.values()
-            if re.match(group_name_pattern, group.name)
+            group for group in proxy_groups if re.match(group_name_pattern, group.name)
         ]
 
     def _sync_proxy_group(
         self,
         db_host: models.Host,
         zabbix_host: Host,
-        proxy_groups: dict[str, ProxyGroup],
+        proxy_groups: list[ProxyGroup],
     ) -> ProxySyncAction:
         """Sync the proxy assignment of a Zabbix host with the proxy pattern defined on the DB host."""
 
         current_group = next(
-            (
-                g
-                for g in proxy_groups.values()
-                if g.proxy_groupid == zabbix_host.proxy_groupid
-            ),
+            (g for g in proxy_groups if g.proxy_groupid == zabbix_host.proxy_groupid),
             None,
         )
 
@@ -1693,7 +1687,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
         return ProxySyncAction.NO_CHANGE
 
     def _sync_proxy(
-        self, db_host: models.Host, zabbix_host: Host, zabbix_proxies: dict[str, Proxy]
+        self, db_host: models.Host, zabbix_host: Host, zabbix_proxies: list[Proxy]
     ) -> ProxySyncAction:
         """Sync the proxy assignment of a Zabbix host with the proxy pattern defined on the DB host."""
         # XXX: we _may_ face a very subtle bug here wherein we haven't properly
@@ -1701,13 +1695,13 @@ class ZabbixHostUpdater(ZabbixUpdater):
         # match, even though host still has proxy.
         # We could use `Host.proxyid` as the definitive check.
         current_proxy = next(
-            (p for p in zabbix_proxies.values() if p.proxyid == zabbix_host.proxyid),
+            (p for p in zabbix_proxies if p.proxyid == zabbix_host.proxyid),
             None,
         )
 
         possible = [
             proxy
-            for proxy in zabbix_proxies.values()
+            for proxy in zabbix_proxies
             if db_host.proxy_pattern and re.match(db_host.proxy_pattern, proxy.name)
         ]
 
@@ -1731,20 +1725,19 @@ class ZabbixHostUpdater(ZabbixUpdater):
 
         return ProxySyncAction.NO_CHANGE
 
-    def get_proxy_groups(self) -> dict[str, ProxyGroup]:
-        """Fetch all proxy groups and return them as a dictionary keyed by name."""
+    def get_proxy_groups(self) -> list[ProxyGroup]:
+        """Fetch all proxy groups."""
         zproxy_groups = self.api.get_proxy_groups(select_proxies=True)
         if not zproxy_groups:
             logger.warning("No Zabbix proxy groups found.")
-        return {group.name: group for group in zproxy_groups}
+        return zproxy_groups
 
-    def get_proxies(self) -> dict[str, Proxy]:
-        """Fetch all proxies and return them as a dictionary keyed by name."""
+    def get_proxies(self) -> list[Proxy]:
+        """Fetch all proxies."""
         zproxies = self.api.get_proxies()
-        zabbix_proxies = {proxy.name: proxy for proxy in zproxies}
-        if not zabbix_proxies:
+        if not zproxies:
             logger.warning("No Zabbix proxies found.")
-        return zabbix_proxies
+        return zproxies
 
     def _should_assign_proxy_group(self, db_host: models.Host) -> bool:
         """Determine if a host should be assigned a proxy group based on its properties."""
@@ -1757,8 +1750,8 @@ class ZabbixHostUpdater(ZabbixUpdater):
         self,
         db_host: models.Host,
         zabbix_host: Host,
-        proxies: dict[str, Proxy],
-        proxy_groups: dict[str, ProxyGroup],
+        proxies: list[Proxy],
+        proxy_groups: list[ProxyGroup],
     ) -> None:
         """Sync monitoring status of the host based on the proxy pattern defined on the DB host.
 
@@ -2046,8 +2039,8 @@ class ZabbixHostUpdater(ZabbixUpdater):
         self,
         db_host: models.Host,
         zabbix_host: Host,
-        proxies: dict[str, Proxy],
-        proxy_groups: dict[str, ProxyGroup],
+        proxies: list[Proxy],
+        proxy_groups: list[ProxyGroup],
     ) -> None:
         """Update a host in Zabbix to match merged DB host from sources.
 
@@ -2078,7 +2071,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
         )
         zabbix_hosts = {host.host: host for host in zhosts}
 
-        proxy_groups: dict[str, ProxyGroup] = {}
+        proxy_groups: list[ProxyGroup] = []
         if self.use_proxy_groups:
             proxy_groups = self.get_proxy_groups()
         proxies = self.get_proxies()
