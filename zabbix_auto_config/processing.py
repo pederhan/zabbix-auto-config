@@ -1625,6 +1625,16 @@ class ZabbixHostUpdater(ZabbixUpdater):
             group for group in proxy_groups if re.match(group_name_pattern, group.name)
         ]
 
+    def _host_is_proxy_group_eligible(self, db_host: models.Host) -> bool:
+        """Determine if a host should be assigned a proxy group based on its properties.
+
+        If no opt-in properties are configured, every host is considered eligible.
+        """
+        return not self.config.zac.process.host_updater.proxy_groups.properties or any(
+            prop in db_host.properties
+            for prop in self.config.zac.process.host_updater.proxy_groups.properties
+        )
+
     def _sync_proxy_group(
         self,
         db_host: models.Host,
@@ -1638,18 +1648,16 @@ class ZabbixHostUpdater(ZabbixUpdater):
             None,
         )
 
-        eligible = not (
-            self.config.zac.process.host_updater.proxy_groups.properties
-            and not self._should_assign_proxy_group(db_host)
-        )
-
-        # Host doesn't want a proxy group (missing opt-in property or has no proxy_pattern).
+        # Host ineligible for proxy group due to properties or proxy pattern
+        eligible = self._host_is_proxy_group_eligible(db_host)
         if not eligible or not db_host.proxy_pattern:
             if current_group is not None:
                 self.clear_proxy(zabbix_host)
                 return ProxySyncAction.CLEARED
             return (
-                ProxySyncAction.NOT_ELIGIBLE if not eligible else ProxySyncAction.KEEP
+                ProxySyncAction.NOT_ELIGIBLE
+                if not eligible
+                else ProxySyncAction.NO_MATCH
             )
 
         # From here on: host is eligible AND proxy_pattern is set.
@@ -1694,8 +1702,8 @@ class ZabbixHostUpdater(ZabbixUpdater):
         ]
 
         # No proxy to assign (no proxy_pattern, or pattern matched nothing):
-        # clear stale proxy (if assigned)
         if not possible:
+            # clear stale proxy (if assigned)
             if current_proxy is not None:
                 self.clear_proxy(zabbix_host)
                 return ProxySyncAction.CLEARED
@@ -1726,13 +1734,6 @@ class ZabbixHostUpdater(ZabbixUpdater):
         if not zproxies:
             logger.warning("No Zabbix proxies found.")
         return zproxies
-
-    def _should_assign_proxy_group(self, db_host: models.Host) -> bool:
-        """Determine if a host should be assigned a proxy group based on its properties."""
-        return any(
-            prop in db_host.properties
-            for prop in self.config.zac.process.host_updater.proxy_groups.properties
-        )
 
     def _sync_monitoring(
         self,
