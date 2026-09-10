@@ -1132,8 +1132,12 @@ class ProxySyncAction(IntEnum):
     UPDATED = 40
     """Updated proxy on host with existing proxy group."""
 
-    NO_CHANGE = 999
-    """Proxy on host did not change due to already being correctly configured."""
+    KEEP = 999
+    """No changes necessary - current configuration kept."""
+
+    def is_unresolved(self) -> bool:
+        """Return True if further proxy assignment is required."""
+        return self < ProxySyncAction.ASSIGNED
 
 
 class ZabbixHostUpdater(ZabbixUpdater):
@@ -1645,9 +1649,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
                 self.clear_proxy(zabbix_host)
                 return ProxySyncAction.CLEARED
             return (
-                ProxySyncAction.NOT_ELIGIBLE
-                if not eligible
-                else ProxySyncAction.NO_CHANGE
+                ProxySyncAction.NOT_ELIGIBLE if not eligible else ProxySyncAction.KEEP
             )
 
         # From here on: host is eligible AND proxy_pattern is set.
@@ -1670,7 +1672,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
             self.set_proxy_group(zabbix_host, random.choice(possible))
             return ProxySyncAction.UPDATED
 
-        return ProxySyncAction.NO_CHANGE
+        return ProxySyncAction.KEEP
 
     def _sync_proxy(
         self, db_host: models.Host, zabbix_host: Host, zabbix_proxies: list[Proxy]
@@ -1698,7 +1700,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
                 self.clear_proxy(zabbix_host)
                 return ProxySyncAction.CLEARED
             if not db_host.proxy_pattern:
-                return ProxySyncAction.NO_CHANGE
+                return ProxySyncAction.KEEP
             return ProxySyncAction.NO_MATCH
 
         if current_proxy is None:
@@ -1709,7 +1711,7 @@ class ZabbixHostUpdater(ZabbixUpdater):
             self.set_proxy(zabbix_host, random.choice(possible))
             return ProxySyncAction.UPDATED
 
-        return ProxySyncAction.NO_CHANGE
+        return ProxySyncAction.KEEP
 
     def get_proxy_groups(self) -> list[ProxyGroup]:
         """Fetch all proxy groups."""
@@ -1747,19 +1749,23 @@ class ZabbixHostUpdater(ZabbixUpdater):
 
         result: ProxySyncAction | None = None
 
+        # NOTE: we lose the reference to the proxy (group) after sync method
+        # so we cannot log the ID of the proxy (group) of the host, since we
+        # operate on a (potentially) stale host object after syncing it here.
+
         if self.use_proxy_groups:
             result = self._sync_proxy_group(db_host, zabbix_host, proxy_groups)
             logger.debug(
                 "Proxy group assignment", host=zabbix_host.host, action=result.name
             )
 
-        if result is None or result < ProxySyncAction.ASSIGNED:
-            # Fall back to a regular proxy if any of:
-            # 1. Proxy groups are not enabled (no result from _sync_proxy_group)
-            # 2. Proxy groups are enabled AND:
-            #    a. Host did not have matching properties (NOT_ELIGIBLE)
-            #    b. No matching proxy groups (NO_MATCH)
-            #    c. The host had its proxy group removed (CLEARED)
+        # Fall back to a regular proxy if any of:
+        # 1. Proxy groups are not enabled (no result from `_sync_proxy_group`)
+        # 2. Proxy groups are enabled AND:
+        #    a. Host did not have matching properties (NOT_ELIGIBLE)
+        #    b. No matching proxy groups (NO_MATCH)
+        #    c. The host had its proxy group removed (CLEARED)
+        if result is None or result.is_unresolved():
             result = self._sync_proxy(db_host, zabbix_host, proxies)
             logger.debug("Proxy assignment", host=zabbix_host.host, action=result.name)
 
